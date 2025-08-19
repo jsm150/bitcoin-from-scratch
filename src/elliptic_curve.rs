@@ -2,9 +2,10 @@ mod finite_field;
 
 use finite_field::Field;
 use std::{ops::Add, usize};
+use finite_field::FieldElement;
 
 pub type Curve<const P: usize, const A: usize, const B: usize> = CurvePoint<GeneralCruveConfig<P, A, B>>;
-pub use finite_field::FieldElement;
+pub type Fp<const P: usize> = FieldElement<P>;
 
 pub trait CruveConfig {
     type BaseField: Field;
@@ -59,7 +60,7 @@ where
                 | (Self::Infinity, e @ Self::Point { .. }) => e,
 
             (Self::Point { x: x1, y: y1 }, 
-                Self::Point { x: x2, y: y2 }) 
+                Self::Point { x: x2, .. }) 
                     if x1 == x2 && y1 == C::BaseField::ZERO => Self::Infinity,
 
             (Self::Infinity, Self::Infinity) => Self::Infinity,

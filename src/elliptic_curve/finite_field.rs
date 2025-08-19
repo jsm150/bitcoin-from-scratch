@@ -87,7 +87,11 @@ impl<const P: usize> Neg for FieldElement<P> {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        Self::new(P - self.num)
+        if self.num == 0 {
+            Self::new(0)
+        } else {
+            Self::new(P - self.num)
+        }
     }
 }
 
@@ -260,5 +264,114 @@ mod tests {
         let d = FieldElement::<11>::new(8);
         let product = c * d;
         assert_eq!(product.num, 1); // (7 * 8) % 11 = 56 % 11 = 1
+    }
+
+    #[test]
+    fn test_neg() {
+        // F7에서 음수 연산 테스트
+        let a = FieldElement::<7>::new(3);
+        let neg_a = -a;
+        assert_eq!(neg_a.num, 4); // -3 ≡ 7 - 3 = 4 (mod 7)
+
+        let b = FieldElement::<7>::new(0);
+        let neg_b = -b;
+        assert_eq!(neg_b.num, 0); // -0 ≡ 7 - 0 = 7 ≡ 0 (mod 7)
+
+        let c = FieldElement::<7>::new(1);
+        let neg_c = -c;
+        assert_eq!(neg_c.num, 6); // -1 ≡ 7 - 1 = 6 (mod 7)
+
+        let d = FieldElement::<7>::new(6);
+        let neg_d = -d;
+        assert_eq!(neg_d.num, 1); // -6 ≡ 7 - 6 = 1 (mod 7)
+
+        // F11에서 음수 연산 테스트
+        let e = FieldElement::<11>::new(5);
+        let neg_e = -e;
+        assert_eq!(neg_e.num, 6); // -5 ≡ 11 - 5 = 6 (mod 11)
+
+        let f = FieldElement::<11>::new(10);
+        let neg_f = -f;
+        assert_eq!(neg_f.num, 1); // -10 ≡ 11 - 10 = 1 (mod 11)
+    }
+
+    #[test]
+    fn test_neg_properties() {
+        // 음수의 성질 테스트
+        let a = FieldElement::<7>::new(3);
+        
+        // a + (-a) = 0 (덧셈 역원)
+        let sum = a + (-a);
+        assert_eq!(sum, FieldElement::<7>::new(0));
+
+        // -(-a) = a (이중 음수)
+        let double_neg = -(-a);
+        assert_eq!(double_neg, a);
+
+        // -(a + b) = (-a) + (-b) (분배 법칙)
+        let b = FieldElement::<7>::new(5);
+        let left = -(a + b);
+        let right = (-a) + (-b);
+        assert_eq!(left, right);
+
+        // -(a - b) = (-a) + b = b - a
+        let left2 = -(a - b);
+        let right2 = (-a) + b;
+        let right3 = b - a;
+        assert_eq!(left2, right2);
+        assert_eq!(left2, right3);
+    }
+
+    #[test]
+    fn test_neg_with_subtraction() {
+        // 뺄셈과 음수의 관계: a - b = a + (-b)
+        let a = FieldElement::<7>::new(4);
+        let b = FieldElement::<7>::new(2);
+        
+        let sub_result = a - b;
+        let add_neg_result = a + (-b);
+        assert_eq!(sub_result, add_neg_result);
+
+        // 0 - a = -a
+        let zero = FieldElement::<7>::new(0);
+        let zero_minus_a = zero - a;
+        let neg_a = -a;
+        assert_eq!(zero_minus_a, neg_a);
+    }
+
+    #[test]
+    fn test_neg_zero() {
+        // 0의 음수는 0
+        let zero = FieldElement::<7>::new(0);
+        let neg_zero = -zero;
+        assert_eq!(neg_zero, zero);
+        assert_eq!(neg_zero.num, 0);
+
+        // 다른 소수체에서도 확인
+        let zero_11 = FieldElement::<11>::new(0);
+        let neg_zero_11 = -zero_11;
+        assert_eq!(neg_zero_11, zero_11);
+        assert_eq!(neg_zero_11.num, 0);
+    }
+
+    #[test]
+    fn test_neg_additive_inverse() {
+        // 모든 원소에 대해 a + (-a) = 0인지 확인
+        for i in 0..7 {
+            let a = FieldElement::<7>::new(i);
+            let neg_a = -a;
+            let sum = a + neg_a;
+            assert_eq!(sum, FieldElement::<7>::new(0), 
+                      "Failed for a = {}, -a = {}", i, neg_a.num);
+        }
+
+        // F5에서도 확인
+        for i in 0..5 {
+            let a = FieldElement::<5>::new(i);
+            let neg_a = -a;
+            let sum = a + neg_a;
+            assert_eq!(sum, FieldElement::<5>::new(0), 
+                      "Failed for a = {} in F5", i);
+        }
     }
 }

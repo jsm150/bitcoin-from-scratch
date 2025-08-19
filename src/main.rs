@@ -1,11 +1,9 @@
-use bitcoin_practice::{elliptic_curve::{Curve, FieldElement}};
-
-pub type F<const P: usize> = FieldElement<P>;
+use bitcoin_practice::{elliptic_curve::{Curve, Fp}};
 
 
 fn main() {
-    let p1 = Curve::<223, 0, 7>::new(F::new(143), F::new(98));
-    let p2 = Curve::<223, 0, 7>::new(F::new(76), F::new(66));
+    let p1 = Curve::<223, 0, 7>::new(Fp::new(143), Fp::new(98));
+    let p2 = Curve::<223, 0, 7>::new(Fp::new(76), Fp::new(66));
     
     println!("{:?}", p1 + p2);
 }
