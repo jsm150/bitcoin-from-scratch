@@ -23,7 +23,7 @@ pub trait U256Wrapper:
 /// # 값 생성과 비교 예시
 /// 
 /// ```rust
-/// # use bitcoin_practice::encrypt::elliptic_curve::*;
+/// # use bitcoin_practice::encrypt::doc_test_utils::*;
 /// # use ruint::aliases::U256;
 /// 
 /// // 작은 수 생성

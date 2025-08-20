@@ -45,6 +45,11 @@ impl Secp256k1 {
     }
 }
 
+#[doc(hidden)]
+pub mod doc_test_utils {
+    pub use crate::encrypt::elliptic_curve::*;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
