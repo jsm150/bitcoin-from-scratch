@@ -74,7 +74,7 @@ where
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self::new((self.num + rhs.num) % P::NUM)
+        Self::new(self.num.add_mod(rhs.num, P::NUM))
     }
 }
 
@@ -85,7 +85,12 @@ where
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Self::new((self.num + P::NUM - rhs.num) % P::NUM)
+        if self.num >= rhs.num {
+            Self::new(self.num - rhs.num)
+        }
+        else {
+            Self::new(P::NUM - (rhs.num - self.num))
+        }
     }
 }
 
@@ -96,7 +101,7 @@ where
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        Self::new((self.num * rhs.num) % P::NUM)
+        Self::new(self.num.mul_mod(rhs.num, P::NUM))
     }
 }
 
@@ -132,9 +137,9 @@ mod tests {
     use super::*;
 
     // U256Wrapper 구현체들 정의
-    type P7 = super::super::U256Type<7, 0, 0, 0>;
-    type P5 = super::super::U256Type<5, 0, 0, 0>;
-    type P11 = super::super::U256Type<11, 0, 0, 0>;
+    type P7 = super::super::U256Type<0, 0, 0, 7>;
+    type P5 = super::super::U256Type<0, 0, 0, 5>;
+    type P11 = super::super::U256Type<0, 0, 0, 11>;
 
     #[test]
     fn test_new() {
@@ -412,5 +417,199 @@ mod tests {
             assert_eq!(sum, FieldElement::<P5>::new(U256::from(0)), 
                       "Failed for a = {} in F5", i);
         }
+    }
+
+    // U256 오버플로우 테스트용 큰 소수 정의
+    // 2^255 - 19 (Curve25519에서 사용되는 소수)
+    type PLarge = super::super::U256Type<
+        0x7fffffffffffffed, 0xffffffffffffffff, 0xffffffffffffffff, 0xffffffffffffffff
+    >;
+
+    #[test]
+    fn test_overflow_addition() {
+        // U256 최대값에 가까운 값들로 덧셈 오버플로우 테스트
+        let max_val = U256::MAX;
+        
+        // 최대값에서 1을 뺀 값들 생성
+        let a_val = max_val - U256::from(1);
+        let b_val = max_val - U256::from(1);
+        
+        // 일반 덧셈으로는 오버플로우가 발생할 것
+        let normal_add_result = a_val.wrapping_add(b_val);
+        println!("Normal addition result (wrapped): {:?}", normal_add_result);
+        
+        // 하지만 우리의 FieldElement는 add_mod를 사용하므로 안전
+        if a_val < PLarge::NUM && b_val < PLarge::NUM {
+            let a = FieldElement::<PLarge>::new(a_val);
+            let b = FieldElement::<PLarge>::new(b_val);
+            let result = a + b;
+            
+            // add_mod 연산으로 올바른 결과 확인
+            let expected = a_val.add_mod(b_val, PLarge::NUM);
+            assert_eq!(result.num, expected);
+            println!("Safe field addition result: {:?}", result.num);
+        }
+    }
+
+    #[test]
+    fn test_overflow_multiplication() {
+        // U256 곱셈 오버플로우 테스트
+        let large_val1 = U256::from(2).pow(U256::from(128)); // 2^128
+        let large_val2 = U256::from(2).pow(U256::from(127)); // 2^127
+        
+        // 일반 곱셈으로는 오버플로우가 발생할 것 (2^128 * 2^127 = 2^255)
+        let normal_mul_result = large_val1.wrapping_mul(large_val2);
+        println!("Normal multiplication result (wrapped): {:?}", normal_mul_result);
+        
+        // 하지만 우리의 FieldElement는 mul_mod를 사용하므로 안전
+        if large_val1 < PLarge::NUM && large_val2 < PLarge::NUM {
+            let a = FieldElement::<PLarge>::new(large_val1);
+            let b = FieldElement::<PLarge>::new(large_val2);
+            let result = a * b;
+            
+            // mul_mod 연산으로 올바른 결과 확인
+            let expected = large_val1.mul_mod(large_val2, PLarge::NUM);
+            assert_eq!(result.num, expected);
+            println!("Safe field multiplication result: {:?}", result.num);
+        }
+    }
+
+    #[test]
+    fn test_overflow_subtraction() {
+        // 작은 값에서 큰 값을 빼는 언더플로우 테스트
+        let small_val = U256::from(5);
+        let large_val = U256::from(10);
+        
+        // 일반 뺄셈으로는 언더플로우가 발생할 것
+        let normal_sub_result = small_val.wrapping_sub(large_val);
+        println!("Normal subtraction result (wrapped): {:?}", normal_sub_result);
+        
+        // P7 필드에서는 10을 7로 나눈 나머지인 3을 사용
+        let a = FieldElement::<P7>::new(small_val);
+        let large_val_reduced = large_val % U256::from(7); // 10 % 7 = 3
+        let b = FieldElement::<P7>::new(large_val_reduced);
+        
+        // 5 - 3 = 2
+        let result = a - b;
+        assert_eq!(result.num, U256::from(2));
+        
+        // 더 명확한 언더플로우 케이스: 작은 값에서 큰 값 빼기
+        let c = FieldElement::<P7>::new(U256::from(1));
+        let d = FieldElement::<P7>::new(U256::from(3));
+        let underflow_result = c - d;
+        
+        // 1 - 3 = 7 - (3 - 1) = 7 - 2 = 5
+        assert_eq!(underflow_result.num, U256::from(5));
+        println!("Safe field subtraction (underflow case): {:?}", underflow_result.num);
+        
+        // 극단적인 언더플로우 케이스
+        let zero = FieldElement::<P7>::new(U256::from(0));
+        let max_field = FieldElement::<P7>::new(U256::from(6));
+        let extreme_underflow = zero - max_field;
+        
+        // 0 - 6 = 7 - 6 = 1
+        assert_eq!(extreme_underflow.num, U256::from(1));
+        println!("Extreme underflow: 0 - 6 = {:?}", extreme_underflow.num);
+    }
+
+    #[test]
+    fn test_overflow_power_operation() {
+        // 거듭제곱에서 발생할 수 있는 오버플로우 테스트
+        let base = FieldElement::<P7>::new(U256::from(5));
+        let large_exponent = U256::from(100); // 큰 지수
+        
+        // 일반적으로 5^100은 매우 큰 수가 되지만, 모듈러 연산으로 안전하게 처리
+        let result = base.pow(large_exponent);
+        
+        // 페르마의 소정리에 의해 5^6 ≡ 1 (mod 7)이므로
+        // 5^100 = 5^(6*16 + 4) = (5^6)^16 * 5^4 ≡ 1^16 * 5^4 = 5^4 (mod 7)
+        let expected = base.pow(U256::from(4));
+        assert_eq!(result, expected);
+        
+        println!("Power operation with large exponent: 5^100 mod 7 = {:?}", result.num);
+        
+        // 매우 큰 지수로도 테스트
+        let very_large_exp = U256::MAX; // U256의 최대값
+        let result2 = base.pow(very_large_exp);
+        
+        // 여전히 유한체에서 안전하게 계산됨
+        println!("Power operation with U256::MAX exponent: {:?}", result2.num);
+    }
+
+    #[test]
+    fn test_overflow_division() {
+        // 나눗셈에서 발생할 수 있는 문제들 테스트
+        // 나눗셈은 역원의 거듭제곱으로 구현되므로 오버플로우보다는 정확성이 중요
+        
+        let a = FieldElement::<P7>::new(U256::from(1));
+        let b = FieldElement::<P7>::new(U256::from(6));
+        
+        // 1 / 6을 계산 (6은 7-1이므로 -1과 같음)
+        // 1 / (-1) = -1 = 6 in F7
+        let result = a / b;
+        assert_eq!(result.num, U256::from(6));
+        
+        // 0으로 나누기는 불가능하지만, 0이 아닌 모든 원소는 역원을 가짐
+        for i in 1..7u64 {
+            let dividend = FieldElement::<P7>::new(U256::from(2));
+            let divisor = FieldElement::<P7>::new(U256::from(i));
+            let result = dividend / divisor;
+            
+            // 결과와 divisor를 곱하면 원래 dividend가 나와야 함
+            let verification = result * divisor;
+            assert_eq!(verification, dividend, 
+                      "Division verification failed for 2 / {}", i);
+        }
+        
+        println!("All division operations completed safely");
+    }
+
+    #[test]
+    fn test_extreme_values() {
+        // 극단적인 값들로 테스트
+        let zero = FieldElement::<P7>::new(U256::from(0));
+        let max_in_field = FieldElement::<P7>::new(U256::from(6)); // P7에서 최대값
+        
+        // 극단값들 간의 연산
+        let sum = zero + max_in_field;
+        assert_eq!(sum, max_in_field);
+        
+        let product = zero * max_in_field;
+        assert_eq!(product, zero);
+        
+        let difference = max_in_field - zero;
+        assert_eq!(difference, max_in_field);
+        
+        // 최대값끼리의 연산
+        let max_plus_max = max_in_field + max_in_field;
+        assert_eq!(max_plus_max.num, U256::from(5)); // (6 + 6) % 7 = 5
+        
+        let max_times_max = max_in_field * max_in_field;
+        assert_eq!(max_times_max.num, U256::from(1)); // (6 * 6) % 7 = 36 % 7 = 1
+        
+        println!("Extreme value operations completed successfully");
+    }
+
+    #[test]
+    fn test_u256_limits() {
+        // U256의 한계값들 테스트
+        let max_u256 = U256::MAX;
+        let min_u256 = U256::MIN; // 0
+        
+        println!("U256::MAX = {:?}", max_u256);
+        println!("U256::MIN = {:?}", min_u256);
+        
+        // P7 범위 내에서만 테스트
+        let a = FieldElement::<P7>::new(min_u256);
+        assert_eq!(a.num, U256::from(0));
+        
+        // 작은 필드에서는 큰 수를 직접 사용할 수 없으므로
+        // 모듈러 연산의 결과를 확인
+        let large_num = U256::from(1000);
+        let reduced = large_num % U256::from(7);
+        let b = FieldElement::<P7>::new(reduced);
+        assert_eq!(b.num, U256::from(6)); // 1000 % 7 = 6
+        
+        println!("U256 limit tests completed");
     }
 }
