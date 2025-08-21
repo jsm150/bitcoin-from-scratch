@@ -1,8 +1,8 @@
 use std::{fmt::Debug, marker::PhantomData, ops::{Add, Div, Mul, Neg, Sub}};
 
-use ruint::aliases::U256;
+use ruint::{aliases::U256, ToUintError};
 
-use super::{U256Wrapper};
+use crate::U256Wrapper;
 
 // Marker
 pub trait Field:
@@ -131,15 +131,27 @@ where
     }
 }
 
+impl<P> TryFrom<FieldElement<P>> for U256 
+where 
+    P: U256Wrapper
+{
+    type Error = ToUintError<Self>;
+
+    fn try_from(value: FieldElement<P>) -> Result<Self, Self::Error> {
+        Ok(value.num)
+    }
+}
 
 #[cfg(test)]
 mod tests {
+    use crate::U256Type;
+
     use super::*;
 
     // U256Wrapper 구현체들 정의
-    type P7 = super::super::U256Type<0, 0, 0, 7>;
-    type P5 = super::super::U256Type<0, 0, 0, 5>;
-    type P11 = super::super::U256Type<0, 0, 0, 11>;
+    type P7 = U256Type<0, 0, 0, 7>;
+    type P5 = U256Type<0, 0, 0, 5>;
+    type P11 = U256Type<0, 0, 0, 11>;
 
     #[test]
     fn test_new() {
@@ -421,7 +433,7 @@ mod tests {
 
     // U256 오버플로우 테스트용 큰 소수 정의
     // 2^255 - 19 (Curve25519에서 사용되는 소수)
-    type PLarge = super::super::U256Type<
+    type PLarge = U256Type<
         0x7fffffffffffffed, 0xffffffffffffffff, 0xffffffffffffffff, 0xffffffffffffffff
     >;
 
