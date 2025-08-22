@@ -1,6 +1,4 @@
 use bitcoin_practice::encrypt::{Secp256k1, PublicKey};
-use rand::{Rng};
-use ruint::aliases::U256;
 
 
 fn main() {
