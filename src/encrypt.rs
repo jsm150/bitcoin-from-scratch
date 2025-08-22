@@ -50,7 +50,7 @@ impl Signature {
 
     pub fn build(z: Fp<N>, secret_key: Fp<N>) -> Self {
         let (k, r) = (0..).find_map(|_| {
-            let k = Fp::new(rand::thread_rng().r#gen());
+            let k = Fp::new(rand::thread_rng().r#gen::<U256>() % N::NUM);
 
             match Secp256k1::default() * k {
                 elliptic_curve::CurvePoint::Point { 
