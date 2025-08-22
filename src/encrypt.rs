@@ -32,20 +32,9 @@ type B = U256Type<0, 0, 0, 7>;
 
 pub type Secp256k1 = Curve<P, A, B>;
 
-impl Secp256k1 {
-    pub const P: U256 = P::NUM;
-    pub const N: U256 = N::NUM;
-    
-    pub const A: U256 = A::NUM;
-    pub const B: U256 = B::NUM;
-
-    pub const GX: Fp<P> = Fp::new(GX::NUM);
-    pub const GY: Fp<P> = Fp::new(GY::NUM);    
-}
-
 impl Default for Secp256k1 {
     fn default() -> Self {
-        Self::new(Self::GX, Self::GY)
+        Self::new(Fp::new(GX::NUM), Fp::new(GY::NUM))
     }
 }
 
@@ -61,33 +50,31 @@ impl Signature {
 
     pub fn build(z: Fp<N>, secret_key: Fp<N>) -> Self {
         let (k, r) = (0..).find_map(|_| {
-            let k: U256 = rand::thread_rng().r#gen();
-            let k = k % Secp256k1::N;
+            let k = Fp::new(rand::thread_rng().r#gen());
 
-            let kg = Secp256k1::default() * k;
-            match kg {
+            match Secp256k1::default() * k {
                 elliptic_curve::CurvePoint::Point { 
                     x, .. 
-                } => Some((Fp::new(k), Fp::<N>::from(x))),
+                } => Some((k, Fp::<N>::from(x))),
                 _ => None,
             }
             
         }).unwrap();
 
-        let s = (z + r * secret_key) / k;
+        let mut s = (z + r * secret_key) / k;
+        if U256::from(s) > N::NUM / U256::from(2) {
+            s = Fp::new(U256::ZERO) - s;
+        }
         Self::new(r, s)
     }
-}
 
-impl Signature {
     pub fn verify(&self, z: Fp<N>, public_key: Secp256k1) -> bool {
         // uG + vP = R
         // u = z / s, v = r / s
-        
+
         let u = z / self.s;
         let v = self.r / self.s;
-        let g = Secp256k1::default();
-        let r = (g * U256::from(u)) + (public_key * U256::from(v));
+        let r = (Secp256k1::default() * u) + (public_key * v);
 
         if let Curve::Point { x: rx, .. } = r {
             let rx = Fp::<N>::from(rx);
@@ -120,7 +107,7 @@ mod tests {
     #[test]
     fn test_secp256k1_curve_equation() {
         // Secp256k1 곡선 방정식 검증: y² = x³ + 7 (mod p)
-        let p = Secp256k1::P;
+        let p = P::NUM;
         let gx = GX::NUM;
         let gy = GY::NUM;
         

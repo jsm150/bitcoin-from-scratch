@@ -207,6 +207,19 @@ where
     }
 }
 
+impl<C, P> Mul<Fp<P>> for CurvePoint<C> 
+where 
+    C: CruveConfig,
+    P: U256Wrapper
+{
+    type Output = Self;
+
+    fn mul(self, rhs: Fp<P>) -> Self::Output {
+        self.mul(U256::from(rhs))
+    }
+}
+
+
 impl<C> Mul<U256> for CurvePoint<C> 
 where 
     C: CruveConfig
