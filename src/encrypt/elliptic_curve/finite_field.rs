@@ -4,18 +4,6 @@ use ruint::{aliases::U256, ToUintError};
 
 use crate::U256Wrapper;
 
-// Marker
-pub trait Field:
-    Clone + Copy + PartialEq + Eq + Debug
-    + Add<Output = Self> + Sub<Output = Self> 
-    + Mul<Output = Self> + Div<Output = Self> 
-    + Neg<Output = Self> + Sized 
-{ 
-    const ZERO: Self;
-    const ONE: Self;
-    fn pow(&self, rhs: U256) -> Self;
-}
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FieldElement<P: U256Wrapper> {
@@ -23,14 +11,21 @@ pub struct FieldElement<P: U256Wrapper> {
     _phantom: PhantomData<P>
 }
 
-impl<P> Field for FieldElement<P> 
+impl<P> FieldElement<P> 
 where 
     P: U256Wrapper
-{ 
-    const ONE: Self = Self { num: U256::from_limbs([1, 0, 0, 0]), _phantom: PhantomData };
-    const ZERO: Self = Self { num: U256::from_limbs([0, 0, 0, 0]), _phantom: PhantomData };
+{
+    pub fn new(mut num: U256) -> Self {
+        num = num % P::NUM;
+        Self { num, _phantom: PhantomData }
+    }
 
-    fn pow(&self, rhs: U256) -> Self {
+    pub const ZERO: Self = Self { num: U256::from_limbs([0, 0, 0, 0]), _phantom: PhantomData };
+    pub const ONE: Self = Self { num: U256::from_limbs([1, 0, 0, 0]), _phantom: PhantomData };
+    pub const TWO: Self = Self { num: U256::from_limbs([2, 0, 0, 0]), _phantom: PhantomData };
+    pub const THREE: Self = Self { num: U256::from_limbs([3, 0, 0, 0]), _phantom: PhantomData };
+
+    pub fn pow(&self, rhs: U256) -> Self {
         if rhs == U256::ZERO {
             return Self::new(U256::from(1));
         }
@@ -50,21 +45,6 @@ where
         
         res
     }
-}
-
-impl<P> FieldElement<P> 
-where 
-    P: U256Wrapper
-{
-    pub const fn new(num: U256) -> Self {
-        if num.checked_sub(P::NUM).is_some() {
-            panic!("위수보다 작은 값을 가져야 합니다.");
-        }
-        
-        Self { num, _phantom: PhantomData }
-    }
-
-    
 }
 
 impl<P> Add for FieldElement<P> 
@@ -164,16 +144,6 @@ mod tests {
         
         let c = FieldElement::<P7>::new(U256::from(6));
         assert_eq!(c.num, U256::from(6));
-    }
-
-    #[test]
-    #[should_panic(expected = "위수보다 작은 값을 가져야 합니다.")]
-    fn test_new_panic() {
-        // P보다 큰 값으로 생성하면 panic 발생
-        // P7::NUM은 7이고, U256::from(7)도 7이므로 7 >= 7에서 패닉이 발생해야 함
-        println!("P7::NUM = {:?}", P7::NUM);
-        println!("U256::from(7) = {:?}", U256::from(7));
-        FieldElement::<P7>::new(U256::from(7));
     }
 
     #[test]

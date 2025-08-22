@@ -5,7 +5,7 @@ use ruint::aliases::U256;
 
 use crate::{U256Type, U256Wrapper};
 
-pub use elliptic_curve::{Curve, Fp};
+pub use elliptic_curve::{CurvePoint, Fp};
 
 type P = U256Type<0xFFFFFFFF_FFFFFFFF, 
     0xFFFFFFFF_FFFFFFFF, 
@@ -30,7 +30,7 @@ type GY = U256Type<0x483ADA77_26A3C465,
 type A = U256Type<0, 0, 0, 0>;
 type B = U256Type<0, 0, 0, 7>;
 
-pub type Secp256k1 = Curve<P, A, B>;
+pub type Secp256k1 = CurvePoint<P, A, B>;
 
 impl Default for Secp256k1 {
     fn default() -> Self {
@@ -76,7 +76,7 @@ impl Signature {
         let v = self.r / self.s;
         let r = (Secp256k1::default() * u) + (public_key * v);
 
-        if let Curve::Point { x: rx, .. } = r {
+        if let CurvePoint::Point { x: rx, .. } = r {
             let rx = Fp::<N>::from(rx);
             rx == self.r
         }
@@ -136,7 +136,13 @@ mod tests {
         let py = U256::from_str_radix(&py_hex[2..], 16).unwrap();
 
         // 공개키 포인트 생성
-        let pk = Curve::Point { x: Fp::new(px), y: Fp::new(py) };
+        let pk = CurvePoint::Point { 
+            x: Fp::new(px), 
+            y: Fp::new(py),
+            a: Fp::new(A::NUM),
+            b: Fp::new(B::NUM),
+            _phantom: std::marker::PhantomData
+        };
         
         // 서명 생성
         let signature = Signature::new(Fp::new(r), Fp::new(s));
@@ -158,7 +164,13 @@ mod tests {
         let r1 = U256::from_str_radix(&r1_hex[2..], 16).unwrap();
         let s1 = U256::from_str_radix(&s1_hex[2..], 16).unwrap();
         
-        let pk = Curve::Point { x: Fp::new(px), y: Fp::new(py) };
+        let pk = CurvePoint::Point { 
+            x: Fp::new(px), 
+            y: Fp::new(py),
+            a: Fp::new(A::NUM),
+            b: Fp::new(B::NUM),
+            _phantom: std::marker::PhantomData
+        };
         let signature1 = Signature::new(Fp::new(r1), Fp::new(s1));
         
         assert!(signature1.verify(Fp::new(z1), pk), "Second image first signature should be valid");

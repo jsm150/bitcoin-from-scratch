@@ -1,65 +1,10 @@
 mod finite_field;
 
-use finite_field::Field;
 use ruint::aliases::U256;
 use std::{fmt::Debug, marker::PhantomData, ops::{Add, Mul}, usize};
 use finite_field::FieldElement;
 use crate::U256Wrapper;
 
-
-/// 타원 곡선을 나타내는 타입 별칭
-/// 
-/// 이 타입은 유한체 위의 타원 곡선 `y² = x³ + Ax + B (mod P)`를 표현합니다.
-/// 
-/// # 타입 매개변수
-/// 
-/// * `P` - 유한체의 소수 모듈러스 (field modulus)
-/// * `A` - 타원 곡선 방정식의 계수 A 
-/// * `B` - 타원 곡선 방정식의 계수 B
-/// 
-/// # 예시
-/// 
-/// ```rust
-/// # use bitcoin_practice::{U256Type, U256Wrapper, encrypt::{Fp, Curve}};
-/// # use ruint::aliases::U256;
-/// 
-/// // Secp256k1 곡선: y² = x³ + 7 (mod p)
-/// type P = U256Type<0xFFFFFFFF_FFFFFFFF, 0xFFFFFFFF_FFFFFFFF, 
-///                   0xFFFFFFFF_FFFFFFFF, 0xFFFFFFFE_FFFFFC2F>;
-/// type A = U256Type<0, 0, 0, 0>;  // A = 0
-/// type B = U256Type<0, 0, 0, 7>;  // B = 7
-/// 
-/// type Secp256k1Curve = Curve<P, A, B>;
-/// 
-/// // 생성자 점 생성
-/// let gx = Fp::<P>::new(U256::from_limbs([0x59F2815B_16F81798, 0x029BFCDB_2DCE28D9, 
-///                                         0x55A06295_CE870B07, 0x79BE667E_F9DCBBAC]));
-/// let gy = Fp::<P>::new(U256::from_limbs([0x9C47D08F_FB10D4B8, 0xFD17B448_A6855419,
-///                                         0x5DA4FBFC_0E1108A8, 0x483ADA77_26A3C465]));
-/// 
-/// let generator = Secp256k1Curve::new(gx, gy);
-/// ```
-/// 
-/// # 지원하는 연산
-/// 
-/// * **점 덧셈**: `point1 + point2` - 타원 곡선 상의 두 점을 더합니다
-/// * **스칼라 곱셈**: `point * scalar` - 점을 정수배 합니다 (이진 거듭제곱법 사용)
-/// * **무한원점**: `Curve::Infinity` - 덧셈의 항등원
-/// 
-/// # 암호학적 응용
-/// 
-/// 이 타입은 다음과 같은 암호학적 프로토콜에서 사용됩니다:
-/// 
-/// * **ECDSA** (Elliptic Curve Digital Signature Algorithm)
-/// * **ECDH** (Elliptic Curve Diffie-Hellman)
-/// * **Bitcoin** 및 기타 암호화폐의 공개키 암호화
-/// 
-/// # 보안 고려사항
-/// 
-/// * 사용하는 곡선이 암호학적으로 안전한지 확인해야 합니다
-/// * 스칼라 곱셈 시 타이밍 공격에 대한 보호가 필요할 수 있습니다
-/// * 개인키는 안전하게 관리되어야 합니다
-pub type Curve<P, A, B> = CurvePoint<GeneralCruveConfig<P, A, B>>;
 
 /// 유한체 원소를 나타내는 타입 별칭
 /// 
@@ -96,63 +41,76 @@ pub type Curve<P, A, B> = CurvePoint<GeneralCruveConfig<P, A, B>>;
 pub type Fp<P> = FieldElement<P>;
 
 
-pub trait CruveConfig:
-    Clone + Copy + Debug + PartialEq + Eq
-{
-    type BaseField: Field;
-
-    const A: Self::BaseField;
-    const B: Self::BaseField;
-}
-
+/// 이 타입은 유한체 위의 타원 곡선 `y² = x³ + Ax + B (mod P)`를 표현합니다.
+/// 
+/// # 타입 매개변수
+/// 
+/// * `P` - 유한체의 소수 모듈러스 (field modulus)
+/// * `A` - 타원 곡선 방정식의 계수 A 
+/// * `B` - 타원 곡선 방정식의 계수 B
+/// 
+/// # 예시
+/// 
+/// ```rust
+/// # use bitcoin_practice::{U256Type, U256Wrapper, encrypt::{Fp, CurvePoint}};
+/// # use ruint::aliases::U256;
+/// 
+/// // Secp256k1 곡선: y² = x³ + 7 (mod p)
+/// type P = U256Type<0xFFFFFFFF_FFFFFFFF, 0xFFFFFFFF_FFFFFFFF, 
+///                   0xFFFFFFFF_FFFFFFFF, 0xFFFFFFFE_FFFFFC2F>;
+/// type A = U256Type<0, 0, 0, 0>;  // A = 0
+/// type B = U256Type<0, 0, 0, 7>;  // B = 7
+/// 
+/// // 생성자 점 생성
+/// let gx = Fp::<P>::new(U256::from_limbs([0x59F2815B_16F81798, 0x029BFCDB_2DCE28D9, 
+///                                         0x55A06295_CE870B07, 0x79BE667E_F9DCBBAC]));
+/// let gy = Fp::<P>::new(U256::from_limbs([0x9C47D08F_FB10D4B8, 0xFD17B448_A6855419,
+///                                         0x5DA4FBFC_0E1108A8, 0x483ADA77_26A3C465]));
+/// 
+/// let generator = CurvePoint::<P, A, B>::new(gx, gy);
+/// ```
+/// 
+/// # 지원하는 연산
+/// 
+/// * **점 덧셈**: `point1 + point2` - 타원 곡선 상의 두 점을 더합니다
+/// * **스칼라 곱셈**: `point * scalar` - 점을 정수배 합니다 (이진 거듭제곱법 사용)
+/// * **무한원점**: `Curve::Infinity` - 덧셈의 항등원
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GeneralCruveConfig<P, A, B> 
+pub enum CurvePoint<P, A, B> 
 where 
     P: U256Wrapper,
     A: U256Wrapper,
     B: U256Wrapper
-{
-    _phantom: PhantomData<(P, A, B)>
-}
-
-impl<P, A, B> CruveConfig for GeneralCruveConfig<P, A, B> 
-where 
-    P: U256Wrapper,
-    A: U256Wrapper,
-    B: U256Wrapper
-{
-    type BaseField = FieldElement<P>;
-
-    const A: Self::BaseField = FieldElement::<P>::new(A::NUM);
-    const B: Self::BaseField = FieldElement::<P>::new(B::NUM);
-}
-
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CurvePoint<C> 
-where 
-    C: CruveConfig
 {
     Infinity,
     Point {
-        x: C::BaseField,
-        y: C::BaseField,
+        x: Fp::<P>,
+        y: Fp::<P>,
+        a: Fp::<P>,
+        b: Fp::<P>,
+        _phantom: PhantomData<(A, B)>
     }
 }
 
-impl<C> CurvePoint<C> 
+impl<P, A, B> CurvePoint<P, A, B>
 where 
-   C: CruveConfig
+    P: U256Wrapper,
+    A: U256Wrapper,
+    B: U256Wrapper
 {
-    pub fn new(x: C::BaseField, y: C::BaseField) -> Self {
-        assert_eq!(y.pow(U256::from(2)), x.pow(U256::from(3)) + C::A * x + C::B, "타원 곡선의 좌표가 잘못되었습니다.");
-        Self::Point { x, y }
+    pub fn new(x: FieldElement::<P>, y: FieldElement::<P>) -> Self {
+        let a = Fp::new(A::NUM);
+        let b = Fp::new(B::NUM);
+        assert_eq!(y.pow(U256::from(2)), x.pow(U256::from(3)) + a * x + b, "타원 곡선의 좌표가 잘못되었습니다.");
+        Self::Point { x, y, a, b, _phantom: PhantomData }
     }
 }
 
-impl<C> Add for CurvePoint<C> 
+impl<P, A, B> Add for CurvePoint<P, A, B>
 where 
-    C: CruveConfig
+    P: U256Wrapper,
+    A: U256Wrapper,
+    B: U256Wrapper
 {
     type Output = Self;
 
@@ -162,14 +120,14 @@ where
             (e @ Self::Point { .. }, Self::Infinity) 
                 | (Self::Infinity, e @ Self::Point { .. }) => e,
 
-            (Self::Point { x: x1, y: y1 }, 
+            (Self::Point { x: x1, y: y1, .. }, 
                 Self::Point { x: x2, .. }) 
-                    if x1 == x2 && y1 == C::BaseField::ZERO => Self::Infinity,
+                    if x1 == x2 && y1 == Fp::ZERO => Self::Infinity,
 
             (Self::Infinity, Self::Infinity) => Self::Infinity,
 
-            (Self::Point { x: x1, y: y1}, 
-                Self::Point { x: x2, y: y2}) => 
+            (Self::Point { x: x1, y: y1, a, b, _phantom}, 
+                Self::Point { x: x2, y: y2, ..}) => 
             {
                 // (A, -A)
                 if y1 != y2 && x1 == x2 {
@@ -182,23 +140,23 @@ where
                     (s, x3)
                 }
                 else {
-                    let two = C::BaseField::ONE + C::BaseField::ONE;
-                    let three = C::BaseField::ONE + C::BaseField::ONE + C::BaseField::ONE;
-                    let s = (three * x1.pow(U256::from(2)) + C::A) / (two * y1);
-                    let x3 = s.pow(U256::from(2)) - (two * x1);
+                    let s = (Fp::THREE * x1.pow(U256::from(2)) + a) / (Fp::TWO * y1);
+                    let x3 = s.pow(U256::from(2)) - (Fp::TWO * x1);
                     (s, x3)
                 };
 
                 let y3 = s * (x1 - x3) - y1;
-                Self::Point { x: x3, y: y3 }
+                Self::Point { x: x3, y: y3, a, b, _phantom }
             },
         }
     }
 }
 
-impl<C> Mul<usize> for CurvePoint<C> 
+impl<P, A, B> Mul<usize> for CurvePoint<P, A, B> 
 where 
-    C: CruveConfig
+    P: U256Wrapper,
+    A: U256Wrapper,
+    B: U256Wrapper
 {
     type Output = Self;
 
@@ -207,22 +165,26 @@ where
     }
 }
 
-impl<C, P> Mul<Fp<P>> for CurvePoint<C> 
+impl<P, A, B, P2> Mul<Fp<P2>> for CurvePoint<P, A, B> 
 where 
-    C: CruveConfig,
-    P: U256Wrapper
+    P: U256Wrapper,
+    A: U256Wrapper,
+    B: U256Wrapper,
+    P2: U256Wrapper
 {
     type Output = Self;
 
-    fn mul(self, rhs: Fp<P>) -> Self::Output {
+    fn mul(self, rhs: Fp<P2>) -> Self::Output {
         self.mul(U256::from(rhs))
     }
 }
 
 
-impl<C> Mul<U256> for CurvePoint<C> 
+impl<P, A, B> Mul<U256> for CurvePoint<P, A, B> 
 where 
-    C: CruveConfig
+    P: U256Wrapper,
+    A: U256Wrapper,
+    B: U256Wrapper
 {
     type Output = Self;
 
@@ -230,7 +192,7 @@ where
         let mut e = rhs;
         let mut base = self;
 
-        let mut mul: CurvePoint<C> = Self::Infinity;
+        let mut mul: Self = Self::Infinity;
 
         while e > U256::from(0) {
             if e % U256::from(2) == U256::from(1) {
@@ -260,8 +222,7 @@ mod tests {
     type A2 = U256Type<0, 0, 0, 2>;
     type B3 = U256Type<0, 0, 0, 3>;
 
-    type TestCurve = GeneralCruveConfig<P23, A5, B7>; // y^2 = x^3 + 5x + 7 mod 23
-    type TestPoint = CurvePoint<TestCurve>;
+    type TestPoint = CurvePoint<P23, A5, B7>;
 
     #[test]
     fn test_point_new_valid() {
@@ -283,7 +244,7 @@ mod tests {
         if left == right {
             let point = TestPoint::new(x, y);
             match point {
-                CurvePoint::Point { x: px, y: py } => {
+                CurvePoint::Point { x: px, y: py, .. } => {
                     assert_eq!(px, x);
                     assert_eq!(py, y);
                 }
@@ -395,7 +356,7 @@ mod tests {
                         CurvePoint::Infinity => {
                             // 무한원점도 유효한 결과
                         }
-                        CurvePoint::Point { x: x3, y: y3 } => {
+                        CurvePoint::Point { x: x3, y: y3, .. } => {
                             // 결과 점이 곡선 위에 있는지 확인
                             let left_check = y3.pow(U256::from(2));
                             let right_check = x3.pow(U256::from(3)) + FieldElement::<P23>::new(U256::from(5)) * x3 + FieldElement::<P23>::new(U256::from(7));
@@ -412,8 +373,7 @@ mod tests {
     #[test]
     fn test_different_curve_config() {
         // 다른 곡선 설정으로 테스트: y^2 = x^3 + 2x + 3 mod 17
-        type TestCurve2 = GeneralCruveConfig<P17, A2, B3>;
-        type TestPoint2 = CurvePoint<TestCurve2>;
+        type TestPoint2 = CurvePoint<P17, A2, B3>;
         
         // 곡선 위의 점 찾기
         for x_val in 0..17 {
@@ -483,9 +443,9 @@ mod tests {
 
     #[test] 
     fn test_field_constants() {
-        // Field trait의 상수들 테스트
-        let zero = <FieldElement<P23> as Field>::ZERO;
-        let one = <FieldElement<P23> as Field>::ONE;
+        // FieldElement의 상수들 테스트
+        let zero = FieldElement::<P23>::new(U256::from(0));
+        let one = FieldElement::<P23>::new(U256::from(1));
         
         assert_eq!(zero, FieldElement::<P23>::new(U256::from(0)));
         assert_eq!(one, FieldElement::<P23>::new(U256::from(1)));
@@ -702,7 +662,7 @@ mod tests {
                     // 결과가 무한원점이거나 곡선 위의 점이어야 함
                     match result_10 {
                         CurvePoint::Infinity => {},
-                        CurvePoint::Point { x: x_res, y: y_res } => {
+                        CurvePoint::Point { x: x_res, y: y_res, .. } => {
                             let left_check = y_res.pow(U256::from(2));
                             let right_check = x_res.pow(U256::from(3)) + FieldElement::<P23>::new(U256::from(5)) * x_res + FieldElement::<P23>::new(U256::from(7));
                             assert_eq!(left_check, right_check, "10P should be on curve");
@@ -711,7 +671,7 @@ mod tests {
                     
                     match result_15 {
                         CurvePoint::Infinity => {},
-                        CurvePoint::Point { x: x_res, y: y_res } => {
+                        CurvePoint::Point { x: x_res, y: y_res, .. } => {
                             let left_check = y_res.pow(U256::from(2));
                             let right_check = x_res.pow(U256::from(3)) + FieldElement::<P23>::new(U256::from(5)) * x_res + FieldElement::<P23>::new(U256::from(7));
                             assert_eq!(left_check, right_check, "15P should be on curve");
@@ -720,7 +680,7 @@ mod tests {
                     
                     match result_20 {
                         CurvePoint::Infinity => {},
-                        CurvePoint::Point { x: x_res, y: y_res } => {
+                        CurvePoint::Point { x: x_res, y: y_res, .. } => {
                             let left_check = y_res.pow(U256::from(2));
                             let right_check = x_res.pow(U256::from(3)) + FieldElement::<P23>::new(U256::from(5)) * x_res + FieldElement::<P23>::new(U256::from(7));
                             assert_eq!(left_check, right_check, "20P should be on curve");
