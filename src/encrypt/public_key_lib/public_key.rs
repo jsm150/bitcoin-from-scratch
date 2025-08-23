@@ -1,8 +1,9 @@
-use std::ops::Deref;
+use std::{ops::Deref};
 
 use ruint::aliases::U256;
 
-use super::{Secp256k1, Fp, B, P, U256Wrapper};
+use super::{Secp256k1, Fp, B, P, U256Wrapper, PublicKeySerialize};
+
 
 #[derive(Debug)]
 pub enum PublicKeyBuildErr {
@@ -15,6 +16,7 @@ pub enum PublicKeyDeserializationErr {
     NotCompressSec
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct PublicKey(Secp256k1);
 
 impl PublicKey {
@@ -28,9 +30,9 @@ impl PublicKey {
         }
     }
 
-    pub fn to_uncompress_sec(&self) -> [u8; 65] {
+    pub fn to_uncompress_sec(&self) -> PublicKeySerialize {
         let mut sec = [0_u8; 65];
-        sec[..1].copy_from_slice(&[4]);
+        sec[0] = 4;
 
         if let Secp256k1::Point { x, y, .. } = self.0 {
             let x_bytes: [u8; 32] = U256::from(x).to_be_bytes();
@@ -40,48 +42,28 @@ impl PublicKey {
             sec[33..].clone_from_slice(&y_bytes);
         }
         
-        sec
+        PublicKeySerialize::Uncompress(sec)
     }
 
-    pub fn to_compress_sec(&self) -> [u8; 33] {
+    pub fn to_compress_sec(&self) -> PublicKeySerialize {
         let mut sec = [0_u8; 33];
         
         if let Secp256k1::Point { x, y, .. } = self.0 {
             if U256::from(y) % U256::from(2) == 0 {
-                sec[..1].copy_from_slice(&[2]);
+                sec[0] = 2;
             }
             else {
-                sec[..1].copy_from_slice(&[3]);
+                sec[0] = 3;
             }
 
             let x_bytes: [u8; 32] = U256::from(x).to_be_bytes();
             sec[1..].clone_from_slice(&x_bytes);
-
         }
 
-        sec
+        PublicKeySerialize::Compress(sec)
     }
-}
 
-impl TryFrom<[u8; 65]> for PublicKey {
-    type Error = PublicKeyDeserializationErr;
-
-    fn try_from(sec: [u8; 65]) -> Result<Self, Self::Error> {
-        if sec[..1] != [4] {
-            return Err(PublicKeyDeserializationErr::NotUncompressSec)
-        }
-
-        let x = U256::from_be_slice(&sec[1..33]);
-        let y = U256::from_be_slice(&sec[33..]);
-
-        Ok(Self::build(Secp256k1::new(Fp::new(x), Fp::new(y))).unwrap())
-    }
-}
-
-impl TryFrom<[u8; 33]> for PublicKey {
-    type Error = PublicKeyDeserializationErr;
-
-    fn try_from(sec: [u8; 33]) -> Result<Self, Self::Error> {
+    fn try_from_compress_sec(sec: [u8; 33]) -> Result<Self, PublicKeyDeserializationErr> {
         if sec[..1] != [3] && sec[..1] != [2] {
             return Err(PublicKeyDeserializationErr::NotCompressSec);
         }
@@ -100,8 +82,29 @@ impl TryFrom<[u8; 33]> for PublicKey {
         
         Ok(Self::build(Secp256k1::new(fp_x, y)).unwrap())
     }
+
+    fn try_from_uncompress_sec(sec: [u8; 65]) -> Result<Self, PublicKeyDeserializationErr> {
+        if sec[..1] != [4] {
+            return Err(PublicKeyDeserializationErr::NotUncompressSec)
+        }
+
+        let x = U256::from_be_slice(&sec[1..33]);
+        let y = U256::from_be_slice(&sec[33..]);
+
+        Ok(Self::build(Secp256k1::new(Fp::new(x), Fp::new(y))).unwrap())
+    }
 }
 
+impl TryFrom<PublicKeySerialize> for PublicKey {
+    type Error = PublicKeyDeserializationErr;
+
+    fn try_from(sec: PublicKeySerialize) -> Result<Self, Self::Error> {
+        match sec {
+            PublicKeySerialize::Compress(sec) => Self::try_from_compress_sec(sec),
+            PublicKeySerialize::Uncompress(sec) => Self::try_from_uncompress_sec(sec),
+        }
+    }
+}
 
 impl Deref for PublicKey {
     type Target = Secp256k1;
@@ -432,7 +435,7 @@ mod tests {
                 invalid_sec[i] = (i as u8).wrapping_mul(17);
             }
             
-            let result = PublicKey::try_from(invalid_sec);
+            let result = PublicKey::try_from(PublicKeySerialize::Compress(invalid_sec));
             assert!(result.is_err(), "Should fail for invalid prefix: 0x{:02x}", prefix);
             
             if let Err(PublicKeyDeserializationErr::NotCompressSec) = result {
@@ -457,7 +460,7 @@ mod tests {
             compressed_sec_02[0] = 0x02;
             compressed_sec_02[1..].copy_from_slice(&x_bytes);
             
-            let result_02 = PublicKey::try_from(compressed_sec_02);
+            let result_02 = PublicKey::try_from(PublicKeySerialize::Compress(compressed_sec_02));
             assert!(result_02.is_ok(), "Should succeed with 0x02 prefix");
             
             // 0x03 prefix 테스트 (홀수 y 가정)
@@ -465,7 +468,7 @@ mod tests {
             compressed_sec_03[0] = 0x03;
             compressed_sec_03[1..].copy_from_slice(&x_bytes);
             
-            let result_03 = PublicKey::try_from(compressed_sec_03);
+            let result_03 = PublicKey::try_from(PublicKeySerialize::Compress(compressed_sec_03));
             assert!(result_03.is_ok(), "Should succeed with 0x03 prefix");
             
             // 두 결과 중 하나는 원본 포인트와 일치해야 함
@@ -591,7 +594,7 @@ mod tests {
         for &prefix in &invalid_prefixes {
             invalid_sec[0] = prefix;
             
-            let result = PublicKey::try_from(invalid_sec);
+            let result = PublicKey::try_from(PublicKeySerialize::Uncompress(invalid_sec));
             assert!(result.is_err(), "Should fail for invalid prefix: 0x{:02x}", prefix);
             
             if let Err(PublicKeyDeserializationErr::NotUncompressSec) = result {
@@ -618,7 +621,7 @@ mod tests {
             valid_sec[1..33].copy_from_slice(&x_bytes);
             valid_sec[33..65].copy_from_slice(&y_bytes);
             
-            let result = PublicKey::try_from(valid_sec);
+            let result = PublicKey::try_from(PublicKeySerialize::Uncompress(valid_sec));
             assert!(result.is_ok(), "Should succeed with valid 0x04 prefix and valid coordinates");
             
             if let Ok(restored_key) = result {
@@ -626,4 +629,6 @@ mod tests {
             }
         }
     }
+
+    
 }
