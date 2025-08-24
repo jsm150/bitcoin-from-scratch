@@ -87,7 +87,42 @@ impl SecretKey {
             )
         )
     }
+
+    pub fn from_wif(wif: &String) -> Result<Self, WifDeserializeErr> {
+        let original = bs58::decode(wif)
+            .with_alphabet(bs58::Alphabet::BITCOIN)
+            .into_vec()
+            .map_err(|e| WifDeserializeErr::FailDecode(e))?;
+
+        // 접두 바이트(1) + 비밀키(32) 접미 바이트(0 or 1) + 체크섬(4)
+        if original.len() < 37 {
+            return Err(WifDeserializeErr::WifToSmall);
+        }   
+
+        let (data, saved_check_sum) = original.split_at(original.len() - 4);
+
+        let check_sum= &Sha256::digest(Sha256::digest(data))[..4];
+
+
+        if check_sum != saved_check_sum {
+            return Err(
+                WifDeserializeErr::InvalidChecksum(
+                    hex::encode(check_sum), hex::encode(saved_check_sum)
+                )
+            );
+        }
+
+        Ok(Self::new(Fp::new(U256::from_be_slice(&data[1..33]))))
+    }
 }
+
+#[derive(Debug)]
+pub enum WifDeserializeErr {
+    WifToSmall,
+    FailDecode(bs58::decode::Error),
+    InvalidChecksum(String, String)
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -279,5 +314,167 @@ mod tests {
         
         assert!(!wif_min.is_empty());
         assert_ne!(wif_max, wif_min);
+    }
+
+    // === from_wif 테스트 코드 ===
+
+    #[test]
+    fn test_from_wif_round_trip() {
+        // WIF 생성 후 다시 파싱해서 원본과 같은지 확인하는 라운드트립 테스트
+        let original_secret = SecretKey::new(Fp::new(U256::from(12345u64)));
+        
+        // MainNet 비압축
+        let public_address_uncompressed = PublicAddress::MainNet(Address::SecUncompress("dummy".to_string()));
+        let wif_uncompressed = original_secret.to_wif(&public_address_uncompressed);
+        let parsed_secret_uncompressed = SecretKey::from_wif(&wif_uncompressed).unwrap();
+        assert_eq!(original_secret, parsed_secret_uncompressed);
+        
+        // MainNet 압축
+        let public_address_compressed = PublicAddress::MainNet(Address::SecCompress("dummy".to_string()));
+        let wif_compressed = original_secret.to_wif(&public_address_compressed);
+        let parsed_secret_compressed = SecretKey::from_wif(&wif_compressed).unwrap();
+        assert_eq!(original_secret, parsed_secret_compressed);
+        
+        // TestNet 비압축
+        let public_address_testnet = PublicAddress::TestNet(Address::SecUncompress("dummy".to_string()));
+        let wif_testnet = original_secret.to_wif(&public_address_testnet);
+        let parsed_secret_testnet = SecretKey::from_wif(&wif_testnet).unwrap();
+        assert_eq!(original_secret, parsed_secret_testnet);
+        
+        // TestNet 압축
+        let public_address_testnet_compressed = PublicAddress::TestNet(Address::SecCompress("dummy".to_string()));
+        let wif_testnet_compressed = original_secret.to_wif(&public_address_testnet_compressed);
+        let parsed_secret_testnet_compressed = SecretKey::from_wif(&wif_testnet_compressed).unwrap();
+        assert_eq!(original_secret, parsed_secret_testnet_compressed);
+    }
+
+    #[test]
+    fn test_from_wif_various_secret_keys() {
+        // 다양한 비밀키 값에 대한 라운드트립 테스트
+        let test_values = vec![
+            1u64,
+            255u64,
+            65536u64,
+            16777216u64,
+            u64::MAX,
+        ];
+        
+        for value in test_values {
+            let original_secret = SecretKey::new(Fp::new(U256::from(value)));
+            let public_address = PublicAddress::MainNet(Address::SecCompress("dummy".to_string()));
+            
+            let wif = original_secret.to_wif(&public_address);
+            let parsed_secret = SecretKey::from_wif(&wif).unwrap();
+            
+            assert_eq!(original_secret, parsed_secret, "Failed for value: {}", value);
+        }
+    }
+
+    #[test]
+    fn test_from_wif_hex_secret_key() {
+        // hex로 된 비밀키에 대한 라운드트립 테스트
+        let hex_secret = "18e14a7b6a307f426a94f8114701e7c8e774e7f9a47e2c2035db29a206321725";
+        let secret_key_bytes = hex::decode(hex_secret).unwrap();
+        let secret_key_u256 = U256::from_be_bytes::<32>(secret_key_bytes.try_into().unwrap());
+        let original_secret = SecretKey::new(Fp::new(secret_key_u256));
+        
+        let public_address = PublicAddress::MainNet(Address::SecCompress("dummy".to_string()));
+        let wif = original_secret.to_wif(&public_address);
+        let parsed_secret = SecretKey::from_wif(&wif).unwrap();
+        
+        assert_eq!(original_secret, parsed_secret);
+    }
+
+    #[test]
+    fn test_from_wif_error_cases() {
+        // 잘못된 WIF 형식에 대한 에러 테스트
+        
+        // 빈 문자열
+        let result = SecretKey::from_wif(&"".to_string());
+        assert!(result.is_err());
+        
+        // 잘못된 Base58 문자열
+        let result = SecretKey::from_wif(&"invalid_base58_0OIl".to_string());
+        assert!(result.is_err());
+        
+        // 너무 짧은 WIF
+        let result = SecretKey::from_wif(&"5".to_string());
+        assert!(result.is_err());
+        
+        // 올바른 Base58이지만 너무 짧은 데이터
+        let short_data = bs58::encode(&[0u8; 10])
+            .with_alphabet(bs58::Alphabet::BITCOIN)
+            .into_string();
+        let result = SecretKey::from_wif(&short_data);
+        assert!(matches!(result, Err(WifDeserializeErr::WifToSmall)));
+    }
+
+    #[test]
+    fn test_from_wif_invalid_checksum() {
+        // 잘못된 체크섬을 가진 WIF 테스트
+        let original_secret = SecretKey::new(Fp::new(U256::from(12345u64)));
+        let public_address = PublicAddress::MainNet(Address::SecUncompress("dummy".to_string()));
+        let wif = original_secret.to_wif(&public_address);
+        
+        // WIF 문자열의 마지막 문자를 변경하여 체크섬을 망침
+        let mut chars: Vec<char> = wif.chars().collect();
+        let last_char = chars.last_mut().unwrap();
+        *last_char = if *last_char == '1' { '2' } else { '1' };
+        let corrupted_wif: String = chars.into_iter().collect();
+        
+        let result = SecretKey::from_wif(&corrupted_wif);
+        assert!(matches!(result, Err(WifDeserializeErr::InvalidChecksum(_, _))));
+    }
+
+    #[test]
+    fn test_from_wif_edge_cases() {
+        // 경계값 테스트
+        
+        // 최소값 (1)
+        let min_secret = SecretKey::new(Fp::new(U256::from(1u64)));
+        let public_address = PublicAddress::MainNet(Address::SecUncompress("dummy".to_string()));
+        let wif_min = min_secret.to_wif(&public_address);
+        let parsed_min = SecretKey::from_wif(&wif_min).unwrap();
+        assert_eq!(min_secret, parsed_min);
+        
+        // 큰 값
+        let big_value = U256::from_str_radix("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140", 16).unwrap();
+        let big_secret = SecretKey::new(Fp::new(big_value));
+        let wif_big = big_secret.to_wif(&public_address);
+        let parsed_big = SecretKey::from_wif(&wif_big).unwrap();
+        assert_eq!(big_secret, parsed_big);
+    }
+
+    #[test]
+    fn test_from_wif_all_network_types() {
+        // 모든 네트워크 타입에 대한 테스트
+        let original_secret = SecretKey::new(Fp::new(U256::from(54321u64)));
+        
+        let test_cases = vec![
+            PublicAddress::MainNet(Address::SecUncompress("dummy".to_string())),
+            PublicAddress::MainNet(Address::SecCompress("dummy".to_string())),
+            PublicAddress::TestNet(Address::SecUncompress("dummy".to_string())),
+            PublicAddress::TestNet(Address::SecCompress("dummy".to_string())),
+        ];
+        
+        for public_address in test_cases {
+            let wif = original_secret.to_wif(&public_address);
+            let parsed_secret = SecretKey::from_wif(&wif).unwrap();
+            assert_eq!(original_secret, parsed_secret);
+        }
+    }
+
+    #[test] 
+    fn test_from_wif_random_keys() {
+        // 랜덤 키에 대한 라운드트립 테스트
+        for _ in 0..10 {
+            let random_secret = SecretKey::random();
+            let public_address = PublicAddress::MainNet(Address::SecCompress("dummy".to_string()));
+            
+            let wif = random_secret.to_wif(&public_address);
+            let parsed_secret = SecretKey::from_wif(&wif).unwrap();
+            
+            assert_eq!(random_secret, parsed_secret);
+        }
     }
 }
