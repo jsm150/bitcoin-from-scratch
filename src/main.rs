@@ -1,7 +1,12 @@
-use bitcoin_practice::encrypt::{Secp256k1, PublicKey};
+use bitcoin_practice::encrypt::{Fp, PublicAddress, PublicKey, Secp256k1, Signature};
+use ruint::aliases::U256;
 
 
 fn main() {
-    let key = PublicKey::build(Secp256k1::default() * 0xdeadbeef12345).unwrap();
-    println!("{:02X?}", key.to_uncompress_sec());
+    let public_key = PublicKey::build(Secp256k1::default() * 0x12345deadbeef).unwrap();
+    let addr = PublicAddress::builder(public_key)
+        .from_compress()
+        .into_main_net();
+
+    println!("{:?}", addr);
 }
