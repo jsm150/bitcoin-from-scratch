@@ -96,7 +96,7 @@ mod tests {
         // 기본적인 Address builder 기능 테스트
         let g = Secp256k1::default();
         let point = g * U256::from(42u64);
-        let public_key = PublicKey::build(point).unwrap();
+        let public_key = PublicKey::from_point(point).unwrap();
         
         // Builder 인스턴스 생성 테스트
         let builder = PublicAddress::builder(public_key);
@@ -136,7 +136,7 @@ mod tests {
         // 동일한 공개키로 여러 번 주소를 생성했을 때 일관성 테스트
         let g = Secp256k1::default();
         let point = g * U256::from(314159u64);
-        let public_key = PublicKey::build(point).unwrap();
+        let public_key = PublicKey::from_point(point).unwrap();
         
         // 같은 공개키로 여러 번 주소 생성
         let addr1 = PublicAddress::builder(public_key).from_compress().into_main_net();
@@ -178,7 +178,7 @@ mod tests {
         // 개인키가 1인지 확인
         assert_eq!(private_key, U256::from(1u64), "Private key should be 1");
         
-        let public_key = PublicKey::build(point).unwrap();
+        let public_key = PublicKey::from_point(point).unwrap();
         
         // 압축된 MainNet 주소 생성 및 검증
         let compressed_mainnet = PublicAddress::builder(public_key).from_compress().into_main_net();

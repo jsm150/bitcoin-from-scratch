@@ -6,4 +6,4 @@ pub use public_key::PublicKey;
 pub use public_address::{AddressBuilder, AddressEncoder, PublicAddress};
 pub use public_serialize::PublicKeySerialize;
 
-use super::{Secp256k1, Fp, B, P, U256Wrapper};
+use super::{Secp256k1, Fp, B, P, U256Wrapper, SecretKey};

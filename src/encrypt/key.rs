@@ -1,7 +1,8 @@
 mod public_key_lib;
 mod secret_key;
 
-use super::{Secp256k1, Fp, B, P, U256Wrapper};
+use super::{Secp256k1, Fp, B, P, N, U256Wrapper};
 
 
-pub use public_key_lib::{PublicKey, PublicAddress, AddressBuilder, AddressEncoder};
+pub use public_key_lib::{PublicKey, PublicAddress};
+pub use secret_key::SecretKey;

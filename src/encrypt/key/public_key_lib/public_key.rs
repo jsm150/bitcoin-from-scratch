@@ -2,7 +2,8 @@ use std::{ops::Deref};
 
 use ruint::aliases::U256;
 
-use super::{Secp256k1, Fp, B, P, U256Wrapper, PublicKeySerialize};
+
+use super::{Secp256k1, Fp, B, P, U256Wrapper, PublicKeySerialize, SecretKey};
 
 
 #[derive(Debug)]
@@ -21,12 +22,22 @@ pub struct PublicKey(Secp256k1);
 
 impl PublicKey {
 
-    pub fn build(key: Secp256k1) -> Result<Self, PublicKeyBuildErr> {
-        if let Secp256k1::Infinity = key {
+    pub fn build(key: SecretKey) -> Result<Self, PublicKeyBuildErr> {
+        let public_key_point = Secp256k1::default() * *key;
+        if let Secp256k1::Infinity = public_key_point {
             Err(PublicKeyBuildErr::NotAllowInfinity)
         }
         else {
-            Ok(PublicKey(key))
+            Ok(PublicKey(public_key_point))
+        }
+    }
+
+    pub fn from_point(point: Secp256k1) -> Result<Self, PublicKeyBuildErr> {
+        if let Secp256k1::Infinity = point {
+            Err(PublicKeyBuildErr::NotAllowInfinity)
+        }
+        else {
+            Ok(PublicKey(point))
         }
     }
 
@@ -80,7 +91,7 @@ impl PublicKey {
             y = Fp::new(U256::ZERO) - y;
         }
         
-        Ok(Self::build(Secp256k1::new(fp_x, y)).unwrap())
+        Ok(Self::from_point(Secp256k1::new(fp_x, y)).unwrap())
     }
 
     fn try_from_uncompress_sec(sec: [u8; 65]) -> Result<Self, PublicKeyDeserializationErr> {
@@ -91,7 +102,7 @@ impl PublicKey {
         let x = U256::from_be_slice(&sec[1..33]);
         let y = U256::from_be_slice(&sec[33..]);
 
-        Ok(Self::build(Secp256k1::new(Fp::new(x), Fp::new(y))).unwrap())
+        Ok(Self::from_point(Secp256k1::new(Fp::new(x), Fp::new(y))).unwrap())
     }
 }
 
@@ -128,7 +139,7 @@ mod tests {
         let py = U256::from_str_radix(&py_hex[2..], 16).unwrap();
         
         let point = Secp256k1::new(Fp::new(px), Fp::new(py));
-        let public_key = PublicKey::build(point).unwrap();
+        let public_key = PublicKey::from_point(point).unwrap();
         
         let uncompressed = public_key.to_uncompress_sec();
         
@@ -159,7 +170,7 @@ mod tests {
             let point = g * secret_key;
             
             if let Secp256k1::Point { x, y, .. } = point {
-                let public_key = PublicKey::build(point).unwrap();
+                let public_key = PublicKey::from_point(point).unwrap();
                 let uncompressed = public_key.to_uncompress_sec();
                 
                 // 기본 형식 검증
@@ -188,7 +199,7 @@ mod tests {
         let point = g * secret_key;
         
         if let Secp256k1::Point { x, y, .. } = point {
-            let public_key = PublicKey::build(point).unwrap();
+            let public_key = PublicKey::from_point(point).unwrap();
             let uncompressed = public_key.to_uncompress_sec();
             
             // 1. Prefix 검증 (첫 번째 바이트는 0x04)
@@ -231,7 +242,7 @@ mod tests {
         let point = g * small_key;
         
         if let Secp256k1::Point { .. } = point {
-            let public_key = PublicKey::build(point).unwrap();
+            let public_key = PublicKey::from_point(point).unwrap();
             let uncompressed = public_key.to_uncompress_sec();
             
             assert_eq!(uncompressed[0], 0x04);
@@ -246,7 +257,7 @@ mod tests {
         let point = g * large_key;
         
         if let Secp256k1::Point { .. } = point {
-            let public_key = PublicKey::build(point).unwrap();
+            let public_key = PublicKey::from_point(point).unwrap();
             let uncompressed = public_key.to_uncompress_sec();
             
             assert_eq!(uncompressed[0], 0x04);
@@ -262,7 +273,7 @@ mod tests {
         let point = g * secret_key;
         
         if let Secp256k1::Point { .. } = point {
-            let public_key = PublicKey::build(point).unwrap();
+            let public_key = PublicKey::from_point(point).unwrap();
             
             // 여러 번 호출하여 결과가 동일한지 확인
             let result1 = public_key.to_uncompress_sec();
@@ -290,7 +301,7 @@ mod tests {
         let py = U256::from_str_radix(&py_hex[2..], 16).unwrap();
         
         let point = Secp256k1::new(Fp::new(px), Fp::new(py));
-        let public_key = PublicKey::build(point).unwrap();
+        let public_key = PublicKey::from_point(point).unwrap();
         
         let compressed = public_key.to_compress_sec();
         
@@ -322,7 +333,7 @@ mod tests {
             let point = g * secret_key;
             
             if let Secp256k1::Point { x, y, .. } = point {
-                let public_key = PublicKey::build(point).unwrap();
+                let public_key = PublicKey::from_point(point).unwrap();
                 let compressed = public_key.to_compress_sec();
                 
                 // 기본 형식 검증
@@ -359,7 +370,7 @@ mod tests {
         let point = g * secret_key;
         
         if let Secp256k1::Point { .. } = point {
-            let public_key = PublicKey::build(point).unwrap();
+            let public_key = PublicKey::from_point(point).unwrap();
             
             // 여러 번 호출하여 결과가 동일한지 확인
             let result1 = public_key.to_compress_sec();
@@ -395,7 +406,7 @@ mod tests {
             let original_point = g * secret_key;
             
             if let Secp256k1::Point { x: orig_x, y: orig_y, .. } = original_point {
-                let original_public_key = PublicKey::build(original_point).unwrap();
+                let original_public_key = PublicKey::from_point(original_point).unwrap();
                 
                 // 압축 형식으로 변환
                 let compressed_sec = original_public_key.to_compress_sec();
@@ -507,7 +518,7 @@ mod tests {
             let original_point = g * secret_key;
             
             if let Secp256k1::Point { .. } = original_point {
-                let original_public_key = PublicKey::build(original_point).unwrap();
+                let original_public_key = PublicKey::from_point(original_point).unwrap();
                 
                 // 압축
                 let compressed_sec = original_public_key.to_compress_sec();
@@ -534,7 +545,7 @@ mod tests {
         let point = g * secret_key;
         
         if let Secp256k1::Point { .. } = point {
-            let public_key = PublicKey::build(point).unwrap();
+            let public_key = PublicKey::from_point(point).unwrap();
             
             let uncompressed = public_key.to_uncompress_sec();
             let compressed = public_key.to_compress_sec();
@@ -568,7 +579,7 @@ mod tests {
             let original_point = g * secret_key;
             
             if let Secp256k1::Point { .. } = original_point {
-                let original_public_key = PublicKey::build(original_point).unwrap();
+                let original_public_key = PublicKey::from_point(original_point).unwrap();
                 
                 // 비압축 형식으로 변환
                 let uncompressed_sec = original_public_key.to_uncompress_sec();
