@@ -21,8 +21,8 @@ impl SecretKey {
     }
 }
 
-impl From<SecretAddress> for SecretKey {
-    fn from(wif: SecretAddress) -> Self {
+impl From<&SecretAddress> for SecretKey {
+    fn from(wif: &SecretAddress) -> Self {
         let decoded = bs58::decode(wif.as_ref())
             .with_alphabet(bs58::Alphabet::BITCOIN)
             .into_vec()
@@ -46,7 +46,7 @@ mod tests {
         let sec_type = PublicKeySerialize::Uncompress([0x04u8; 65]);
         
         let secret_address = SecretAddress::build(&secret_key, &public_address, &sec_type);
-        let recovered_secret_key = SecretKey::from(secret_address);
+        let recovered_secret_key = SecretKey::from(&secret_address);
         
         assert_eq!(secret_key, recovered_secret_key);
     }
@@ -59,7 +59,7 @@ mod tests {
         let sec_type = PublicKeySerialize::Compress([0x02u8; 33]);
         
         let secret_address = SecretAddress::build(&secret_key, &public_address, &sec_type);
-        let recovered_secret_key = SecretKey::from(secret_address);
+        let recovered_secret_key = SecretKey::from(&secret_address);
         
         assert_eq!(secret_key, recovered_secret_key);
     }

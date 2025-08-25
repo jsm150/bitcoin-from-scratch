@@ -35,39 +35,6 @@ impl PublicKey {
         }
     }
 
-    pub fn to_uncompress_sec(&self) -> PublicKeySerialize {
-        let mut sec = [0_u8; 65];
-        sec[0] = 4;
-
-        if let Secp256k1::Point { x, y, .. } = self.0 {
-            let x_bytes: [u8; 32] = U256::from(x).to_be_bytes();
-            sec[1..33].clone_from_slice(&x_bytes);
-
-            let y_bytes: [u8; 32] = U256::from(y).to_be_bytes();
-            sec[33..].clone_from_slice(&y_bytes);
-        }
-        
-        PublicKeySerialize::Uncompress(sec)
-    }
-
-    pub fn to_compress_sec(&self) -> PublicKeySerialize {
-        let mut sec = [0_u8; 33];
-        
-        if let Secp256k1::Point { x, y, .. } = self.0 {
-            if U256::from(y) % U256::from(2) == 0 {
-                sec[0] = 2;
-            }
-            else {
-                sec[0] = 3;
-            }
-
-            let x_bytes: [u8; 32] = U256::from(x).to_be_bytes();
-            sec[1..].clone_from_slice(&x_bytes);
-        }
-
-        PublicKeySerialize::Compress(sec)
-    }
-
     fn from_compress_sec(sec: [u8; 33]) -> Self {
         let x = U256::from_be_slice(&sec[1..]);
         let fp_x = Fp::<P>::new(x);
@@ -125,7 +92,7 @@ mod tests {
         let point = Secp256k1::new(Fp::new(px), Fp::new(py));
         let public_key = PublicKey::from_point(point).unwrap();
         
-        let uncompressed = public_key.to_uncompress_sec();
+        let uncompressed = PublicKeySerialize::from_uncompress(public_key);
         
         // 첫 번째 바이트는 0x04여야 함 (비압축 형식)
         assert_eq!(uncompressed[0], 0x04);
@@ -155,7 +122,7 @@ mod tests {
             
             if let Secp256k1::Point { x, y, .. } = point {
                 let public_key = PublicKey::from_point(point).unwrap();
-                let uncompressed = public_key.to_uncompress_sec();
+                let uncompressed = PublicKeySerialize::from_uncompress(public_key);
                 
                 // 기본 형식 검증
                 assert_eq!(uncompressed[0], 0x04);
@@ -184,7 +151,7 @@ mod tests {
         
         if let Secp256k1::Point { x, y, .. } = point {
             let public_key = PublicKey::from_point(point).unwrap();
-            let uncompressed = public_key.to_uncompress_sec();
+            let uncompressed = PublicKeySerialize::from_uncompress(public_key);
             
             // 1. Prefix 검증 (첫 번째 바이트는 0x04)
             assert_eq!(uncompressed[0], 0x04, "Prefix should be 0x04 for uncompressed format");
@@ -227,7 +194,7 @@ mod tests {
         
         if let Secp256k1::Point { .. } = point {
             let public_key = PublicKey::from_point(point).unwrap();
-            let uncompressed = public_key.to_uncompress_sec();
+            let uncompressed = PublicKeySerialize::from_uncompress(public_key);
             
             assert_eq!(uncompressed[0], 0x04);
             assert_eq!(uncompressed.len(), 65);
@@ -242,7 +209,7 @@ mod tests {
         
         if let Secp256k1::Point { .. } = point {
             let public_key = PublicKey::from_point(point).unwrap();
-            let uncompressed = public_key.to_uncompress_sec();
+            let uncompressed = PublicKeySerialize::from_uncompress(public_key);
             
             assert_eq!(uncompressed[0], 0x04);
             assert_eq!(uncompressed.len(), 65);
@@ -260,9 +227,9 @@ mod tests {
             let public_key = PublicKey::from_point(point).unwrap();
             
             // 여러 번 호출하여 결과가 동일한지 확인
-            let result1 = public_key.to_uncompress_sec();
-            let result2 = public_key.to_uncompress_sec();
-            let result3 = public_key.to_uncompress_sec();
+            let result1 = PublicKeySerialize::from_uncompress(public_key);
+            let result2 = PublicKeySerialize::from_uncompress(public_key);
+            let result3 = PublicKeySerialize::from_uncompress(public_key);
             
             assert_eq!(result1, result2, "Multiple calls should return identical results");
             assert_eq!(result2, result3, "Multiple calls should return identical results");
@@ -287,7 +254,7 @@ mod tests {
         let point = Secp256k1::new(Fp::new(px), Fp::new(py));
         let public_key = PublicKey::from_point(point).unwrap();
         
-        let compressed = public_key.to_compress_sec();
+        let compressed = PublicKeySerialize::from_compress(public_key);
         
         // 총 길이는 33바이트여야 함
         assert_eq!(compressed.len(), 33);
@@ -318,7 +285,7 @@ mod tests {
             
             if let Secp256k1::Point { x, y, .. } = point {
                 let public_key = PublicKey::from_point(point).unwrap();
-                let compressed = public_key.to_compress_sec();
+                let compressed = PublicKeySerialize::from_compress(public_key);
                 
                 // 기본 형식 검증
                 assert_eq!(compressed.len(), 33);
@@ -357,9 +324,9 @@ mod tests {
             let public_key = PublicKey::from_point(point).unwrap();
             
             // 여러 번 호출하여 결과가 동일한지 확인
-            let result1 = public_key.to_compress_sec();
-            let result2 = public_key.to_compress_sec();
-            let result3 = public_key.to_compress_sec();
+            let result1 = PublicKeySerialize::from_compress(public_key);
+            let result2 = PublicKeySerialize::from_compress(public_key);
+            let result3 = PublicKeySerialize::from_compress(public_key);
             
             assert_eq!(result1, result2, "Multiple calls should return identical results");
             assert_eq!(result2, result3, "Multiple calls should return identical results");
@@ -393,10 +360,10 @@ mod tests {
                 let original_public_key = PublicKey::from_point(original_point).unwrap();
                 
                 // 압축 형식으로 변환
-                let compressed_sec = original_public_key.to_compress_sec();
+                let compressed_sec = PublicKeySerialize::from_compress(original_public_key);
                 
                 // 압축된 SEC에서 공개키 복원
-                let restored_public_key = PublicKey::try_from(compressed_sec).unwrap();
+                let restored_public_key = PublicKey::from(compressed_sec);
                 
                 // 복원된 공개키가 원본과 동일한지 확인
                 if let Secp256k1::Point { x: rest_x, y: rest_y, .. } = restored_public_key.0 {
@@ -473,10 +440,10 @@ mod tests {
                 let original_public_key = PublicKey::from_point(original_point).unwrap();
                 
                 // 압축
-                let compressed_sec = original_public_key.to_compress_sec();
+                let compressed_sec = PublicKeySerialize::from_compress(original_public_key);
                 
                 // 압축해제
-                let restored_public_key = PublicKey::try_from(compressed_sec).unwrap();
+                let restored_public_key = PublicKey::from(compressed_sec);
                 
                 // 원본과 복원된 공개키가 동일한지 확인
                 assert_eq!(original_public_key.0, restored_public_key.0,
@@ -499,8 +466,8 @@ mod tests {
         if let Secp256k1::Point { .. } = point {
             let public_key = PublicKey::from_point(point).unwrap();
             
-            let uncompressed = public_key.to_uncompress_sec();
-            let compressed = public_key.to_compress_sec();
+            let uncompressed = PublicKeySerialize::from_uncompress(public_key);
+            let compressed = PublicKeySerialize::from_compress(public_key);
             
             assert_eq!(uncompressed.len(), 65, "Uncompressed should be 65 bytes");
             assert_eq!(compressed.len(), 33, "Compressed should be 33 bytes");
@@ -534,10 +501,10 @@ mod tests {
                 let original_public_key = PublicKey::from_point(original_point).unwrap();
                 
                 // 비압축 형식으로 변환
-                let uncompressed_sec = original_public_key.to_uncompress_sec();
+                let uncompressed_sec = PublicKeySerialize::from_uncompress(original_public_key);
                 
                 // 비압축 SEC에서 공개키 복원
-                let restored_public_key = PublicKey::try_from(uncompressed_sec).unwrap();
+                let restored_public_key = PublicKey::from(uncompressed_sec);
                 
                 // 원본과 복원된 공개키가 동일한지 확인
                 assert_eq!(original_public_key.0, restored_public_key.0,

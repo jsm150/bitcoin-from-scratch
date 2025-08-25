@@ -1,6 +1,9 @@
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 
+use crate::encrypt::{key::{public_key_lib::public_key::PublicKeyBuildErr, secret_address::{PublicNet, SecretAddress}}, PublicKey};
+use super::super::Compress;
+
 use super::PublicKeySerialize;
 
 
@@ -150,8 +153,8 @@ mod tests {
         let public_key = PublicKey::from_point(point).unwrap();
         
         // PublicKeySerialize 생성
-        let compressed_sec = public_key.to_compress_sec();
-        let uncompressed_sec = public_key.to_uncompress_sec();
+        let compressed_sec = PublicKeySerialize::from_compress(public_key);
+        let uncompressed_sec = PublicKeySerialize::from_uncompress(public_key);
         
         // 압축된 형식 주소 생성
         let compressed_mainnet = PublicAddress::build(&compressed_sec).into_main_net();
@@ -191,7 +194,7 @@ mod tests {
         let public_key = PublicKey::from_point(point).unwrap();
         
         // 압축된 PublicKeySerialize 생성
-        let compressed_sec = public_key.to_compress_sec();
+        let compressed_sec = PublicKeySerialize::from_compress(public_key);
         
         // 같은 공개키로 여러 번 주소 생성
         let addr1 = PublicAddress::build(&compressed_sec).into_main_net();
@@ -233,7 +236,7 @@ mod tests {
         let public_key = PublicKey::from_point(point).unwrap();
         
         // 압축된 PublicKeySerialize 생성
-        let compressed_sec = public_key.to_compress_sec();
+        let compressed_sec = PublicKeySerialize::from_compress(public_key);
         
         // 압축된 MainNet 주소 생성 및 검증
         let compressed_mainnet = PublicAddress::build(&compressed_sec).into_main_net();
@@ -251,7 +254,7 @@ mod tests {
         println!("✓ Private key 1 compressed MainNet address: {}", compressed_addr);
         
         // 비압축 PublicKeySerialize 생성
-        let uncompressed_sec = public_key.to_uncompress_sec();
+        let uncompressed_sec = PublicKeySerialize::from_uncompress(public_key);
         
         // 비압축 MainNet 주소 생성 및 검증
         let uncompressed_mainnet = PublicAddress::build(&uncompressed_sec).into_main_net();
@@ -294,7 +297,7 @@ mod tests {
         let g = Secp256k1::default();
         let point = g * U256::from(1u64);
         let public_key = PublicKey::from_point(point).unwrap();
-        let compressed_sec = public_key.to_compress_sec();
+        let compressed_sec = PublicKeySerialize::from_compress(public_key);
         let testnet_address_obj = PublicAddress::build(&compressed_sec).into_test_net();
         
         let testnet_address_str = match &testnet_address_obj {
@@ -347,7 +350,7 @@ mod tests {
         let public_key = PublicKey::from_point(point).unwrap();
 
         // 압축된 형태의 PublicKeySerialize와 PublicAddress 생성
-        let compressed_sec = public_key.to_compress_sec();
+        let compressed_sec = PublicKeySerialize::from_compress(public_key);
         let compressed_address = PublicAddress::build(&compressed_sec).into_main_net();
 
         // 압축된 주소와 압축된 SEC가 같은지 테스트
@@ -355,7 +358,7 @@ mod tests {
         println!("✓ Compressed PublicAddress equals compressed PublicKeySerialize");
 
         // 비압축 형태의 PublicKeySerialize와 PublicAddress 생성
-        let uncompressed_sec = public_key.to_uncompress_sec();
+        let uncompressed_sec = PublicKeySerialize::from_uncompress(public_key);
         let uncompressed_address = PublicAddress::build(&uncompressed_sec).into_main_net();
 
         // 비압축 주소와 비압축 SEC가 같은지 테스트
@@ -389,12 +392,12 @@ mod tests {
         let public_key2 = PublicKey::from_point(point2).unwrap();
 
         // 첫 번째 키로 주소와 SEC 생성
-        let compressed_sec1 = public_key1.to_compress_sec();
+        let compressed_sec1 = PublicKeySerialize::from_compress(public_key1);
         let address1 = PublicAddress::build(&compressed_sec1).into_main_net();
-        let sec1 = public_key1.to_compress_sec();
+        let sec1 = PublicKeySerialize::from_compress(public_key1);
 
         // 두 번째 키로 SEC 생성
-        let sec2 = public_key2.to_compress_sec();
+        let sec2 = PublicKeySerialize::from_compress(public_key2);
 
         // 같은 키로 생성한 것은 같아야 함
         assert_eq!(address1, sec1);
@@ -413,7 +416,7 @@ mod tests {
         let public_key = PublicKey::from_point(point).unwrap();
 
         // 압축된 형태
-        let compressed_sec = public_key.to_compress_sec();
+        let compressed_sec = PublicKeySerialize::from_compress(public_key);
         let compressed_address = PublicAddress::build(&compressed_sec).into_main_net();
 
         assert_eq!(compressed_address, compressed_sec);
@@ -426,7 +429,7 @@ mod tests {
         assert_eq!(address_str, "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH");
         
         // 비압축 형태
-        let uncompressed_sec = public_key.to_uncompress_sec();
+        let uncompressed_sec = PublicKeySerialize::from_uncompress(public_key);
         let uncompressed_address = PublicAddress::build(&uncompressed_sec).into_main_net();
 
         assert_eq!(uncompressed_address, uncompressed_sec);
@@ -449,7 +452,7 @@ mod tests {
         let public_key = PublicKey::from_point(point).unwrap();
 
         // 압축된 형태로 주소 생성
-        let compressed_sec = public_key.to_compress_sec();
+        let compressed_sec = PublicKeySerialize::from_compress(public_key);
         let compressed_address = PublicAddress::build(&compressed_sec).into_main_net();
 
         // 주소 문자열 추출

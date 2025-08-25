@@ -9,7 +9,7 @@ pub enum PublicNet {
     Test
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Compress {
     On,
     Off
@@ -360,7 +360,7 @@ mod tests {
             let secret_address = SecretAddress::build(&secret_key, &public_address, &sec);
             let wif_string = secret_address.as_ref().clone();
             let parsed_address = SecretAddress::try_from(wif_string.clone()).unwrap();
-            let recovered_key = SecretKey::from(parsed_address);
+            let recovered_key = SecretKey::from(&parsed_address);
 
             // 모든 값이 일치하는지 확인
             assert_eq!(U256::from(*secret_key), U256::from(*recovered_key));

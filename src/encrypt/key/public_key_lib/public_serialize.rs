@@ -1,8 +1,47 @@
+use ruint::aliases::U256;
+
+use crate::encrypt::{k256::Secp256k1, PublicKey};
+
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PublicKeySerialize {
     Compress([u8; 33]),
     Uncompress([u8; 65])
+}
+
+impl PublicKeySerialize {
+    pub fn from_uncompress(public_key: PublicKey) -> Self {
+        let mut sec = [0_u8; 65];
+        sec[0] = 4;
+
+        if let Secp256k1::Point { x, y, .. } = *public_key {
+            let x_bytes: [u8; 32] = U256::from(x).to_be_bytes();
+            sec[1..33].clone_from_slice(&x_bytes);
+
+            let y_bytes: [u8; 32] = U256::from(y).to_be_bytes();
+            sec[33..].clone_from_slice(&y_bytes);
+        }
+        
+        Self::Uncompress(sec)
+    }
+
+    pub fn from_compress(public_key: PublicKey) -> Self {
+        let mut sec = [0_u8; 33];
+        
+        if let Secp256k1::Point { x, y, .. } = *public_key {
+            if U256::from(y) % U256::from(2) == 0 {
+                sec[0] = 2;
+            }
+            else {
+                sec[0] = 3;
+            }
+
+            let x_bytes: [u8; 32] = U256::from(x).to_be_bytes();
+            sec[1..].clone_from_slice(&x_bytes);
+        }
+
+        Self::Compress(sec)
+    }
 }
 
 impl AsRef<[u8]> for PublicKeySerialize {
