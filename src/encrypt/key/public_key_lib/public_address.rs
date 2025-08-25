@@ -1,3 +1,4 @@
+use digest::generic_array::arr;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 
@@ -146,6 +147,35 @@ impl TryFrom<String> for PublicAddress {
     }
 }
 
+
+impl PartialEq<PublicKeySerialize> for PublicAddress {
+    fn eq(&self, sec: &PublicKeySerialize) -> bool {
+        let arr = match sec {
+            PublicKeySerialize::Compress(arr) => &arr[..],
+            PublicKeySerialize::Uncompress(arr) => &arr[..],
+        };
+        
+        let hash160 = Ripemd160::digest(Sha256::digest(arr));
+        
+        let address = match self {
+            PublicAddress::MainNet(address) => address,
+            PublicAddress::TestNet(address) => address,
+        };
+
+        let address = match address {
+            Address::Compress(address) => address,
+            Address::Uncompress(address) => address,
+            Address::UnknownCompress(address) => address,
+        };
+
+        let decoded = bs58::decode(address)
+            .with_alphabet(bs58::Alphabet::BITCOIN)
+            .into_vec()
+            .unwrap();
+
+        decoded[1..21] == hash160[..]
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -345,5 +375,161 @@ mod tests {
         println!("✓ Unsupported version correctly rejected");
 
         println!("✓ All string to PublicAddress conversion tests passed");
+    }
+
+    #[test]
+    fn test_public_address_equals_public_key_serialize() {
+        // 테스트용 공개키 생성
+        let g = Secp256k1::default();
+        let point = g * U256::from(42u64);
+        let public_key = PublicKey::from_point(point).unwrap();
+
+        // 압축된 형태의 PublicKeySerialize와 PublicAddress 생성
+        let compressed_sec = public_key.to_compress_sec();
+        let compressed_address = PublicAddress::build_with_public_key(public_key)
+            .from_compress()
+            .into_main_net();
+
+        // 압축된 주소와 압축된 SEC가 같은지 테스트
+        assert_eq!(compressed_address, compressed_sec);
+        println!("✓ Compressed PublicAddress equals compressed PublicKeySerialize");
+
+        // 비압축 형태의 PublicKeySerialize와 PublicAddress 생성
+        let uncompressed_sec = public_key.to_uncompress_sec();
+        let uncompressed_address = PublicAddress::build_with_public_key(public_key)
+            .from_uncompress()
+            .into_main_net();
+
+        // 비압축 주소와 비압축 SEC가 같은지 테스트
+        assert_eq!(uncompressed_address, uncompressed_sec);
+        println!("✓ Uncompressed PublicAddress equals uncompressed PublicKeySerialize");
+
+        // TestNet 주소도 동일하게 동작하는지 테스트
+        let compressed_testnet = PublicAddress::build_with_public_key(public_key)
+            .from_compress()
+            .into_test_net();
+        assert_eq!(compressed_testnet, compressed_sec);
+        println!("✓ Compressed TestNet PublicAddress equals compressed PublicKeySerialize");
+
+        let uncompressed_testnet = PublicAddress::build_with_public_key(public_key)
+            .from_uncompress()
+            .into_test_net();
+        assert_eq!(uncompressed_testnet, uncompressed_sec);
+        println!("✓ Uncompressed TestNet PublicAddress equals uncompressed PublicKeySerialize");
+
+        // 다른 형태끼리는 같지 않아야 함
+        assert_ne!(compressed_address, uncompressed_sec);
+        assert_ne!(uncompressed_address, compressed_sec);
+        println!("✓ Different compression formats correctly identified as not equal");
+    }
+
+    #[test]
+    fn test_public_address_equals_different_keys() {
+        // 서로 다른 공개키로 생성한 주소와 SEC는 같지 않아야 함
+        let g = Secp256k1::default();
+        
+        let point1 = g * U256::from(123u64);
+        let public_key1 = PublicKey::from_point(point1).unwrap();
+        
+        let point2 = g * U256::from(456u64);
+        let public_key2 = PublicKey::from_point(point2).unwrap();
+
+        // 첫 번째 키로 주소와 SEC 생성
+        let address1 = PublicAddress::build_with_public_key(public_key1)
+            .from_compress()
+            .into_main_net();
+        let sec1 = public_key1.to_compress_sec();
+
+        // 두 번째 키로 SEC 생성
+        let sec2 = public_key2.to_compress_sec();
+
+        // 같은 키로 생성한 것은 같아야 함
+        assert_eq!(address1, sec1);
+        
+        // 다른 키로 생성한 것은 다르게 나와야 함
+        assert_ne!(address1, sec2);
+        println!("✓ Different keys produce different addresses as expected");
+    }
+
+    #[test]
+    fn test_public_address_equals_known_vector() {
+        // 알려진 테스트 벡터로 검증
+        let private_key = U256::from(1u64);
+        let g = Secp256k1::default();
+        let point = g * private_key;
+        let public_key = PublicKey::from_point(point).unwrap();
+
+        // 압축된 형태
+        let compressed_sec = public_key.to_compress_sec();
+        let compressed_address = PublicAddress::build_with_public_key(public_key)
+            .from_compress()
+            .into_main_net();
+
+        assert_eq!(compressed_address, compressed_sec);
+        
+        // 실제 주소 확인
+        let address_str = match &compressed_address {
+            PublicAddress::MainNet(Address::Compress(s)) => s,
+            _ => panic!("Expected compressed MainNet address"),
+        };
+        assert_eq!(address_str, "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH");
+        
+        // 비압축 형태
+        let uncompressed_sec = public_key.to_uncompress_sec();
+        let uncompressed_address = PublicAddress::build_with_public_key(public_key)
+            .from_uncompress()
+            .into_main_net();
+
+        assert_eq!(uncompressed_address, uncompressed_sec);
+        
+        // 실제 주소 확인
+        let address_str = match &uncompressed_address {
+            PublicAddress::MainNet(Address::Uncompress(s)) => s,
+            _ => panic!("Expected uncompressed MainNet address"),
+        };
+        assert_eq!(address_str, "1EHNa6Q4Jz2uvNExL497mE43ikXhwF6kZm");
+        
+        println!("✓ Known test vector verification passed");
+    }
+
+    #[test]
+    fn test_public_address_equals_parse_from_string() {
+        // 문자열로 파싱한 주소와 PublicKeySerialize 비교
+        let g = Secp256k1::default();
+        let point = g * U256::from(1u64);
+        let public_key = PublicKey::from_point(point).unwrap();
+
+        // 압축된 형태로 주소 생성
+        let compressed_sec = public_key.to_compress_sec();
+        let compressed_address = PublicAddress::build_with_public_key(public_key)
+            .from_compress()
+            .into_main_net();
+
+        // 주소 문자열 추출
+        let address_string = match &compressed_address {
+            PublicAddress::MainNet(Address::Compress(s)) => s.clone(),
+            _ => panic!("Expected compressed MainNet address"),
+        };
+
+        // 문자열에서 파싱한 주소
+        let parsed_address = PublicAddress::try_from(address_string).unwrap();
+
+        // 파싱한 주소는 UnknownCompress 타입이지만, 동일한 SEC와 비교했을 때는 같아야 함
+        assert_eq!(parsed_address, compressed_sec);
+        println!("✓ Parsed address equals original PublicKeySerialize");
+
+        // TestNet 주소도 테스트
+        let testnet_address = PublicAddress::build_with_public_key(public_key)
+            .from_compress()
+            .into_test_net();
+        
+        let testnet_string = match &testnet_address {
+            PublicAddress::TestNet(Address::Compress(s)) => s.clone(),
+            _ => panic!("Expected compressed TestNet address"),
+        };
+
+        let parsed_testnet = PublicAddress::try_from(testnet_string).unwrap();
+        assert_eq!(parsed_testnet, compressed_sec);
+        println!("✓ Parsed TestNet address equals original PublicKeySerialize");
     }
 }
