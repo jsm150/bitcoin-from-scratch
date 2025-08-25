@@ -86,6 +86,67 @@ impl PublicAddress {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AddressParseError {
+    InvalidBase58,
+    InvalidChecksum,
+    InvalidLength,
+    UnsupportedVersion,
+}
+
+impl std::fmt::Display for AddressParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AddressParseError::InvalidBase58 => write!(f, "Invalid base58 encoding"),
+            AddressParseError::InvalidChecksum => write!(f, "Invalid checksum"),
+            AddressParseError::InvalidLength => write!(f, "Invalid address length"),
+            AddressParseError::UnsupportedVersion => write!(f, "Unsupported address version"),
+        }
+    }
+}
+
+impl std::error::Error for AddressParseError {}
+
+impl TryFrom<String> for PublicAddress {
+    type Error = AddressParseError;
+
+    fn try_from(address: String) -> Result<Self, Self::Error> {
+        // Base58 디코딩
+        let decoded = bs58::decode(&address)
+            .with_alphabet(bs58::Alphabet::BITCOIN)
+            .into_vec()
+            .map_err(|_| AddressParseError::InvalidBase58)?;
+
+        // 최소 길이 확인 (version byte + 20 bytes hash + 4 bytes checksum)
+        if decoded.len() != 25 {
+            return Err(AddressParseError::InvalidLength);
+        }
+
+        // 체크섬 검증
+        let (payload, checksum) = decoded.split_at(21);
+        let expected_checksum = &Sha256::digest(Sha256::digest(payload))[..4];
+        
+        if checksum != expected_checksum {
+            return Err(AddressParseError::InvalidChecksum);
+        }
+
+        // 버전 바이트에 따라 MainNet/TestNet 구분
+        let version = payload[0];
+        match version {
+            0x00 => {
+                // MainNet P2PKH 주소
+                Ok(PublicAddress::MainNet(Address::UnknownCompress(address)))
+            },
+            0x6f => {
+                // TestNet P2PKH 주소
+                Ok(PublicAddress::TestNet(Address::UnknownCompress(address)))
+            },
+            _ => Err(AddressParseError::UnsupportedVersion),
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use ruint::aliases::U256;
@@ -219,5 +280,70 @@ mod tests {
             "Compressed and uncompressed addresses should be different");
         
         println!("✓ All known address values verified for private key 1");
+    }
+
+    #[test]
+    fn test_string_to_public_address_conversion() {
+        // 유효한 MainNet 주소 테스트
+        let mainnet_address = String::from("1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH");
+        let parsed_mainnet = PublicAddress::try_from(mainnet_address.clone()).unwrap();
+        
+        match parsed_mainnet {
+            PublicAddress::MainNet(Address::UnknownCompress(addr)) => {
+                assert_eq!(addr, mainnet_address);
+                println!("✓ MainNet address parsed successfully: {}", addr);
+            },
+            _ => panic!("Expected MainNet UnknownCompress address"),
+        }
+
+        // 유효한 TestNet 주소 테스트 (버전 바이트 0x6f)
+        // TestNet 주소 예시를 만들어보자
+        let g = Secp256k1::default();
+        let point = g * U256::from(1u64);
+        let public_key = PublicKey::from_point(point).unwrap();
+        let testnet_address_obj = PublicAddress::build_with_public_key(public_key)
+            .from_compress()
+            .into_test_net();
+        
+        let testnet_address_str = match &testnet_address_obj {
+            PublicAddress::TestNet(Address::Compress(s)) => s.clone(),
+            _ => panic!("Expected TestNet Compress address"),
+        };
+
+        let parsed_testnet = PublicAddress::try_from(testnet_address_str.clone()).unwrap();
+        match parsed_testnet {
+            PublicAddress::TestNet(Address::UnknownCompress(addr)) => {
+                assert_eq!(addr, testnet_address_str);
+                println!("✓ TestNet address parsed successfully: {}", addr);
+            },
+            _ => panic!("Expected TestNet UnknownCompress address"),
+        }
+
+        // 잘못된 Base58 문자열 테스트
+        let invalid_base58 = String::from("invalid0OIl");
+        let result = PublicAddress::try_from(invalid_base58);
+        assert!(matches!(result, Err(AddressParseError::InvalidBase58)));
+        println!("✓ Invalid base58 correctly rejected");
+
+        // 잘못된 체크섬 테스트
+        let invalid_checksum = String::from("1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMX"); // 마지막 문자 변경
+        let result = PublicAddress::try_from(invalid_checksum);
+        assert!(matches!(result, Err(AddressParseError::InvalidChecksum)));
+        println!("✓ Invalid checksum correctly rejected");
+
+        // 잘못된 길이 테스트
+        let too_short = String::from("1A1");
+        let result = PublicAddress::try_from(too_short);
+        assert!(matches!(result, Err(AddressParseError::InvalidLength)));
+        println!("✓ Invalid length correctly rejected");
+
+        // 지원하지 않는 버전 테스트 (P2SH 주소는 0x05로 시작)
+        // P2SH 주소 예시: 3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy
+        let p2sh_address = String::from("3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy");
+        let result = PublicAddress::try_from(p2sh_address);
+        assert!(matches!(result, Err(AddressParseError::UnsupportedVersion)));
+        println!("✓ Unsupported version correctly rejected");
+
+        println!("✓ All string to PublicAddress conversion tests passed");
     }
 }
