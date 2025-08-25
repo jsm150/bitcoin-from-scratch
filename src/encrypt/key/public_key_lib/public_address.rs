@@ -1,12 +1,9 @@
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 
-use crate::encrypt::{key::{public_key_lib::public_key::PublicKeyBuildErr, secret_address::{PublicNet, SecretAddress}}, PublicKey};
-use super::super::Compress;
+use crate::encrypt::{key::{public_key_lib::public_key::PublicKeyBuildErr, secret_address::{PublicNet, SecretAddress}}};
 
 use super::PublicKeySerialize;
-
-
 
 pub struct AddressEncoder(Vec<u8>);
 
@@ -135,6 +132,22 @@ impl PartialEq<PublicKeySerialize> for PublicAddress {
         decoded[1..21] == hash160[..]
     }
 }
+
+impl TryFrom<&SecretAddress> for PublicAddress {
+    type Error = PublicKeyBuildErr;
+    fn try_from(secret_addr: &SecretAddress) -> Result<Self, PublicKeyBuildErr> {
+        let public_serialize = secret_addr.try_into()?;
+
+        let builder = PublicAddress::build(&public_serialize);
+        let public_address = match secret_addr.net {
+            PublicNet::Main => builder.into_main_net(),
+            PublicNet::Test => builder.into_test_net(),
+        };
+        
+        Ok(public_address)        
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -479,5 +492,219 @@ mod tests {
         let parsed_testnet = PublicAddress::try_from(testnet_string).unwrap();
         assert_eq!(parsed_testnet, compressed_sec);
         println!("✓ Parsed TestNet address equals original PublicKeySerialize");
+    }
+
+    #[test]
+    fn test_secret_address_to_public_address_conversion() {
+        use crate::encrypt::key::secret_address::SecretAddress;
+        use crate::encrypt::SecretKey;
+        use crate::encrypt::key::Fp;
+
+        // 알려진 개인키 1로 테스트
+        let private_key = U256::from(1u64);
+        let secret_key = SecretKey::new(Fp::new(private_key));
+        let g = Secp256k1::default();
+        let point = g * private_key;
+        let public_key = PublicKey::from_point(point).unwrap();
+
+        // 압축된 MainNet WIF 생성 및 변환 테스트
+        let compressed_sec = PublicKeySerialize::from_compress(public_key);
+        let expected_mainnet_addr = PublicAddress::build(&compressed_sec).into_main_net();
+        let secret_address_mainnet = SecretAddress::build(&secret_key, &expected_mainnet_addr, &compressed_sec);
+        
+        let converted_mainnet = PublicAddress::try_from(&secret_address_mainnet).unwrap();
+        
+        // 변환된 주소가 예상한 주소와 같은지 확인
+        assert_eq!(converted_mainnet, expected_mainnet_addr);
+        
+        let addr_str = match &converted_mainnet {
+            PublicAddress::MainNet(s) => s,
+            _ => panic!("Expected MainNet address"),
+        };
+        assert_eq!(addr_str, "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH");
+        println!("✓ SecretAddress to PublicAddress (MainNet compressed): {}", addr_str);
+
+        // 비압축 MainNet WIF 생성 및 변환 테스트
+        let uncompressed_sec = PublicKeySerialize::from_uncompress(public_key);
+        let expected_mainnet_uncomp = PublicAddress::build(&uncompressed_sec).into_main_net();
+        let secret_address_uncomp = SecretAddress::build(&secret_key, &expected_mainnet_uncomp, &uncompressed_sec);
+        
+        let converted_uncomp = PublicAddress::try_from(&secret_address_uncomp).unwrap();
+        assert_eq!(converted_uncomp, expected_mainnet_uncomp);
+        
+        let uncomp_str = match &converted_uncomp {
+            PublicAddress::MainNet(s) => s,
+            _ => panic!("Expected MainNet address"),
+        };
+        assert_eq!(uncomp_str, "1EHNa6Q4Jz2uvNExL497mE43ikXhwF6kZm");
+        println!("✓ SecretAddress to PublicAddress (MainNet uncompressed): {}", uncomp_str);
+
+        // TestNet 압축 WIF 생성 및 변환 테스트
+        let expected_testnet_addr = PublicAddress::build(&compressed_sec).into_test_net();
+        let secret_address_testnet = SecretAddress::build(&secret_key, &expected_testnet_addr, &compressed_sec);
+        
+        let converted_testnet = PublicAddress::try_from(&secret_address_testnet).unwrap();
+        assert_eq!(converted_testnet, expected_testnet_addr);
+        
+        match &converted_testnet {
+            PublicAddress::TestNet(s) => println!("✓ SecretAddress to PublicAddress (TestNet compressed): {}", s),
+            _ => panic!("Expected TestNet address"),
+        }
+
+        // TestNet 비압축 WIF 생성 및 변환 테스트
+        let expected_testnet_uncomp = PublicAddress::build(&uncompressed_sec).into_test_net();
+        let secret_address_testnet_uncomp = SecretAddress::build(&secret_key, &expected_testnet_uncomp, &uncompressed_sec);
+        
+        let converted_testnet_uncomp = PublicAddress::try_from(&secret_address_testnet_uncomp).unwrap();
+        assert_eq!(converted_testnet_uncomp, expected_testnet_uncomp);
+        
+        match &converted_testnet_uncomp {
+            PublicAddress::TestNet(s) => println!("✓ SecretAddress to PublicAddress (TestNet uncompressed): {}", s),
+            _ => panic!("Expected TestNet address"),
+        }
+    }
+
+    #[test]
+    fn test_wif_string_to_public_address_roundtrip() {
+        use crate::encrypt::key::secret_address::SecretAddress;
+        use crate::encrypt::SecretKey;
+        use crate::encrypt::key::Fp;
+
+        // 다양한 개인키로 roundtrip 테스트
+        let test_private_keys = [1u64, 42u64, 12345u64, 0xdeadbeef];
+        
+        for &pk_value in &test_private_keys {
+            let private_key = U256::from(pk_value);
+            let secret_key = SecretKey::new(Fp::new(private_key));
+            let g = Secp256k1::default();
+            let point = g * private_key;
+            let public_key = PublicKey::from_point(point).unwrap();
+
+            // 압축된 MainNet 테스트
+            let compressed_sec = PublicKeySerialize::from_compress(public_key);
+            let original_mainnet = PublicAddress::build(&compressed_sec).into_main_net();
+            let secret_address = SecretAddress::build(&secret_key, &original_mainnet, &compressed_sec);
+            
+            // WIF 문자열로부터 SecretAddress 파싱
+            let wif_string = secret_address.as_ref().clone();
+            let parsed_secret_address = SecretAddress::try_from(wif_string.clone()).unwrap();
+            
+            // 파싱된 SecretAddress로부터 PublicAddress 생성
+            let recovered_address = PublicAddress::try_from(&parsed_secret_address).unwrap();
+            
+            // 원본과 복원된 주소가 같은지 확인
+            assert_eq!(recovered_address, original_mainnet);
+            
+            println!("✓ Roundtrip test passed for private key {} (WIF: {})", pk_value, wif_string);
+
+            // 비압축 MainNet도 테스트
+            let uncompressed_sec = PublicKeySerialize::from_uncompress(public_key);
+            let original_uncomp = PublicAddress::build(&uncompressed_sec).into_main_net();
+            let secret_address_uncomp = SecretAddress::build(&secret_key, &original_uncomp, &uncompressed_sec);
+            
+            let wif_uncomp = secret_address_uncomp.as_ref().clone();
+            let parsed_uncomp = SecretAddress::try_from(wif_uncomp.clone()).unwrap();
+            let recovered_uncomp = PublicAddress::try_from(&parsed_uncomp).unwrap();
+            
+            assert_eq!(recovered_uncomp, original_uncomp);
+            println!("✓ Roundtrip test passed for uncompressed private key {} (WIF: {})", pk_value, wif_uncomp);
+        }
+    }
+
+    #[test]
+    fn test_wif_network_consistency() {
+        use crate::encrypt::key::secret_address::{SecretAddress, PublicNet};
+        use crate::encrypt::SecretKey;
+        use crate::encrypt::key::Fp;
+
+        let private_key = U256::from(999u64);
+        let secret_key = SecretKey::new(Fp::new(private_key));
+        let g = Secp256k1::default();
+        let point = g * private_key;
+        let public_key = PublicKey::from_point(point).unwrap();
+        let compressed_sec = PublicKeySerialize::from_compress(public_key);
+
+        // MainNet WIF 생성
+        let mainnet_addr = PublicAddress::build(&compressed_sec).into_main_net();
+        let mainnet_secret_addr = SecretAddress::build(&secret_key, &mainnet_addr, &compressed_sec);
+        
+        // TestNet WIF 생성  
+        let testnet_addr = PublicAddress::build(&compressed_sec).into_test_net();
+        let testnet_secret_addr = SecretAddress::build(&secret_key, &testnet_addr, &compressed_sec);
+        
+        // 각각 변환하여 올바른 네트워크 타입이 나오는지 확인
+        let converted_mainnet = PublicAddress::try_from(&mainnet_secret_addr).unwrap();
+        let converted_testnet = PublicAddress::try_from(&testnet_secret_addr).unwrap();
+        
+        match (&converted_mainnet, &converted_testnet) {
+            (PublicAddress::MainNet(_), PublicAddress::TestNet(_)) => {
+                println!("✓ Network types correctly preserved during conversion");
+            },
+            _ => panic!("Network types not correctly preserved"),
+        }
+
+        // 네트워크 타입 확인
+        assert_eq!(mainnet_secret_addr.net, PublicNet::Main);
+        assert_eq!(testnet_secret_addr.net, PublicNet::Test);
+        
+        // WIF 문자열이 다른지 확인 (같은 키라도 네트워크가 다르면 WIF가 달라야 함)
+        assert_ne!(mainnet_secret_addr.as_ref(), testnet_secret_addr.as_ref());
+        
+        println!("✓ MainNet WIF: {}", mainnet_secret_addr.as_ref());
+        println!("✓ TestNet WIF: {}", testnet_secret_addr.as_ref());
+    }
+
+    #[test]
+    fn test_wif_compression_consistency() {
+        use crate::encrypt::key::secret_address::{SecretAddress, Compress};
+        use crate::encrypt::SecretKey;
+        use crate::encrypt::key::Fp;
+
+        let private_key = U256::from(777u64);
+        let secret_key = SecretKey::new(Fp::new(private_key));
+        let g = Secp256k1::default();
+        let point = g * private_key;
+        let public_key = PublicKey::from_point(point).unwrap();
+
+        // 압축된 SEC와 비압축 SEC 생성
+        let compressed_sec = PublicKeySerialize::from_compress(public_key);
+        let uncompressed_sec = PublicKeySerialize::from_uncompress(public_key);
+
+        // MainNet 주소들 생성
+        let mainnet_addr_comp = PublicAddress::build(&compressed_sec).into_main_net();
+        let mainnet_addr_uncomp = PublicAddress::build(&uncompressed_sec).into_main_net();
+
+        // WIF 생성
+        let compressed_secret_addr = SecretAddress::build(&secret_key, &mainnet_addr_comp, &compressed_sec);
+        let uncompressed_secret_addr = SecretAddress::build(&secret_key, &mainnet_addr_uncomp, &uncompressed_sec);
+
+        // 압축 플래그 확인
+        assert_eq!(compressed_secret_addr.comp, Compress::On);
+        assert_eq!(uncompressed_secret_addr.comp, Compress::Off);
+
+        // PublicAddress로 변환
+        let converted_comp = PublicAddress::try_from(&compressed_secret_addr).unwrap();
+        let converted_uncomp = PublicAddress::try_from(&uncompressed_secret_addr).unwrap();
+
+        // 변환된 주소가 원본과 일치하는지 확인
+        assert_eq!(converted_comp, mainnet_addr_comp);
+        assert_eq!(converted_uncomp, mainnet_addr_uncomp);
+
+        // 압축/비압축 주소가 다른지 확인
+        assert_ne!(converted_comp, converted_uncomp);
+
+        let comp_str = match &converted_comp {
+            PublicAddress::MainNet(s) => s,
+            _ => panic!("Expected MainNet"),
+        };
+        
+        let uncomp_str = match &converted_uncomp {
+            PublicAddress::MainNet(s) => s,
+            _ => panic!("Expected MainNet"),
+        };
+
+        println!("✓ Compressed address: {}", comp_str);
+        println!("✓ Uncompressed address: {}", uncomp_str);
+        println!("✓ Compression consistency maintained through WIF conversion");
     }
 }

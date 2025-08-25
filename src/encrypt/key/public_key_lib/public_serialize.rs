@@ -1,6 +1,6 @@
 use ruint::aliases::U256;
 
-use crate::encrypt::{k256::Secp256k1, PublicKey};
+use crate::encrypt::{k256::Secp256k1, key::{public_key_lib::public_key::PublicKeyBuildErr, secret_address::{Compress, SecretAddress}}, PublicKey};
 
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +74,20 @@ impl TryFrom<[u8; 65]> for PublicKeySerialize {
         }
 
         Ok(Self::Uncompress(sec))
+    }
+}
+
+impl TryFrom<&SecretAddress> for PublicKeySerialize {
+    type Error = PublicKeyBuildErr;
+    fn try_from(secret_addr: &SecretAddress) -> Result<Self, PublicKeyBuildErr> {
+        let secret_key = secret_addr.into();
+        let public_key = PublicKey::build(secret_key)?;
+        let public_serialize = match &secret_addr.comp {
+            Compress::On => PublicKeySerialize::from_compress(public_key),
+            Compress::Off => PublicKeySerialize::from_uncompress(public_key),
+        };
+
+        Ok(public_serialize)
     }
 }
 
