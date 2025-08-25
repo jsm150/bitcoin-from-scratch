@@ -11,12 +11,6 @@ pub enum PublicKeyBuildErr {
     NotAllowInfinity
 }
 
-#[derive(Debug)]
-pub enum PublicKeyDeserializationErr {
-    NotUncompressSec,
-    NotCompressSec
-}
-
 #[derive(Debug, Copy, Clone)]
 pub struct PublicKey(Secp256k1);
 
@@ -74,11 +68,7 @@ impl PublicKey {
         PublicKeySerialize::Compress(sec)
     }
 
-    fn try_from_compress_sec(sec: [u8; 33]) -> Result<Self, PublicKeyDeserializationErr> {
-        if sec[..1] != [3] && sec[..1] != [2] {
-            return Err(PublicKeyDeserializationErr::NotCompressSec);
-        }
-
+    fn from_compress_sec(sec: [u8; 33]) -> Self {
         let x = U256::from_be_slice(&sec[1..]);
         let fp_x = Fp::<P>::new(x);
         let mut y = 
@@ -91,28 +81,22 @@ impl PublicKey {
             y = Fp::new(U256::ZERO) - y;
         }
         
-        Ok(Self::from_point(Secp256k1::new(fp_x, y)).unwrap())
+        Self::from_point(Secp256k1::new(fp_x, y)).unwrap()
     }
 
-    fn try_from_uncompress_sec(sec: [u8; 65]) -> Result<Self, PublicKeyDeserializationErr> {
-        if sec[..1] != [4] {
-            return Err(PublicKeyDeserializationErr::NotUncompressSec)
-        }
-
+    fn from_uncompress_sec(sec: [u8; 65]) -> Self {
         let x = U256::from_be_slice(&sec[1..33]);
         let y = U256::from_be_slice(&sec[33..]);
 
-        Ok(Self::from_point(Secp256k1::new(Fp::new(x), Fp::new(y))).unwrap())
+        Self::from_point(Secp256k1::new(Fp::new(x), Fp::new(y))).unwrap()
     }
 }
 
-impl TryFrom<PublicKeySerialize> for PublicKey {
-    type Error = PublicKeyDeserializationErr;
-
-    fn try_from(sec: PublicKeySerialize) -> Result<Self, Self::Error> {
+impl From<PublicKeySerialize> for PublicKey {
+    fn from(sec: PublicKeySerialize) -> Self {
         match sec {
-            PublicKeySerialize::Compress(sec) => Self::try_from_compress_sec(sec),
-            PublicKeySerialize::Uncompress(sec) => Self::try_from_uncompress_sec(sec),
+            PublicKeySerialize::Compress(sec) => Self::from_compress_sec(sec),
+            PublicKeySerialize::Uncompress(sec) => Self::from_uncompress_sec(sec),
         }
     }
 }
@@ -432,32 +416,6 @@ mod tests {
     }
 
     #[test]
-    fn test_publickey_from_compressed_sec_invalid_prefix() {
-        // 잘못된 prefix로 압축 SEC 파싱 테스트
-        let mut invalid_sec = [0u8; 33];
-        
-        // 유효하지 않은 prefix들 테스트
-        let invalid_prefixes = [0x00, 0x01, 0x04, 0x05, 0xFF];
-        
-        for &prefix in &invalid_prefixes {
-            invalid_sec[0] = prefix;
-            // 나머지 바이트는 임의의 값으로 채움
-            for i in 1..33 {
-                invalid_sec[i] = (i as u8).wrapping_mul(17);
-            }
-            
-            let result = PublicKey::try_from(PublicKeySerialize::Compress(invalid_sec));
-            assert!(result.is_err(), "Should fail for invalid prefix: 0x{:02x}", prefix);
-            
-            if let Err(PublicKeyDeserializationErr::NotCompressSec) = result {
-                // 예상된 에러
-            } else {
-                panic!("Should return NotCompressSec error for prefix: 0x{:02x}", prefix);
-            }
-        }
-    }
-
-    #[test]
     fn test_publickey_from_compressed_sec_valid_prefixes() {
         // 유효한 prefix (0x02, 0x03)로 테스트
         let g = Secp256k1::default();
@@ -471,33 +429,27 @@ mod tests {
             compressed_sec_02[0] = 0x02;
             compressed_sec_02[1..].copy_from_slice(&x_bytes);
             
-            let result_02 = PublicKey::try_from(PublicKeySerialize::Compress(compressed_sec_02));
-            assert!(result_02.is_ok(), "Should succeed with 0x02 prefix");
+            let result_02 = PublicKey::from(PublicKeySerialize::Compress(compressed_sec_02));
             
             // 0x03 prefix 테스트 (홀수 y 가정)
             let mut compressed_sec_03 = [0u8; 33];
             compressed_sec_03[0] = 0x03;
             compressed_sec_03[1..].copy_from_slice(&x_bytes);
             
-            let result_03 = PublicKey::try_from(PublicKeySerialize::Compress(compressed_sec_03));
-            assert!(result_03.is_ok(), "Should succeed with 0x03 prefix");
+            let result_03 = PublicKey::from(PublicKeySerialize::Compress(compressed_sec_03));
             
             // 두 결과 중 하나는 원본 포인트와 일치해야 함
             let is_y_even = U256::from(y) % U256::from(2) == U256::ZERO;
             
             if is_y_even {
-                if let Ok(pk_02) = result_02 {
-                    if let Secp256k1::Point { y: restored_y, .. } = pk_02.0 {
-                        assert_eq!(U256::from(y), U256::from(restored_y), 
-                            "0x02 prefix should restore even Y correctly");
-                    }
+                if let Secp256k1::Point { y: restored_y, .. } = result_02.0 {
+                    assert_eq!(U256::from(y), U256::from(restored_y), 
+                        "0x02 prefix should restore even Y correctly");
                 }
             } else {
-                if let Ok(pk_03) = result_03 {
-                    if let Secp256k1::Point { y: restored_y, .. } = pk_03.0 {
-                        assert_eq!(U256::from(y), U256::from(restored_y), 
-                            "0x03 prefix should restore odd Y correctly");
-                    }
+                if let Secp256k1::Point { y: restored_y, .. } = result_03.0 {
+                    assert_eq!(U256::from(y), U256::from(restored_y), 
+                        "0x03 prefix should restore odd Y correctly");
                 }
             }
         }
@@ -595,28 +547,6 @@ mod tests {
     }
 
     #[test]
-    fn test_publickey_from_uncompressed_sec_invalid_prefix() {
-        // 잘못된 prefix로 비압축 SEC 파싱 테스트
-        let mut invalid_sec = [0u8; 65];
-        
-        // 유효하지 않은 prefix들 테스트 (0x04가 아닌 값들)
-        let invalid_prefixes = [0x00, 0x01, 0x02, 0x03, 0x05, 0xFF];
-        
-        for &prefix in &invalid_prefixes {
-            invalid_sec[0] = prefix;
-            
-            let result = PublicKey::try_from(PublicKeySerialize::Uncompress(invalid_sec));
-            assert!(result.is_err(), "Should fail for invalid prefix: 0x{:02x}", prefix);
-            
-            if let Err(PublicKeyDeserializationErr::NotUncompressSec) = result {
-                // 예상된 에러
-            } else {
-                panic!("Should return NotUncompressSec error for prefix: 0x{:02x}", prefix);
-            }
-        }
-    }
-
-    #[test]
     fn test_publickey_from_uncompressed_sec_valid_prefix() {
         // 유효한 prefix (0x04)로 비압축 SEC 테스트
         let g = Secp256k1::default();
@@ -632,12 +562,9 @@ mod tests {
             valid_sec[1..33].copy_from_slice(&x_bytes);
             valid_sec[33..65].copy_from_slice(&y_bytes);
             
-            let result = PublicKey::try_from(PublicKeySerialize::Uncompress(valid_sec));
-            assert!(result.is_ok(), "Should succeed with valid 0x04 prefix and valid coordinates");
+            let result = PublicKey::from(PublicKeySerialize::Uncompress(valid_sec));
             
-            if let Ok(restored_key) = result {
-                assert_eq!(restored_key.0, point, "Restored key should match original point");
-            }
+            assert_eq!(result.0, point, "Restored key should match original point");
         }
     }
 
