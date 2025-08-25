@@ -53,7 +53,7 @@ impl SecretKey {
             : (usize, &'a Address, &'a mut [u8])
         ) -> (usize, &'a mut [u8])
         {
-            if let Address::SecCompress(_) = sec_type {
+            if let Address::Compress(_) = sec_type {
                 buf[position] = 0x01;
                 position += 1;
             }
@@ -106,9 +106,10 @@ impl SecretKey {
 
         if check_sum != saved_check_sum {
             return Err(
-                WifDeserializeErr::InvalidChecksum(
-                    hex::encode(check_sum), hex::encode(saved_check_sum)
-                )
+                WifDeserializeErr::InvalidChecksum {
+                    hash_from_original: hex::encode(check_sum),
+                    hash_in_wif: hex::encode(saved_check_sum)
+                }
             );
         }
 
@@ -120,7 +121,7 @@ impl SecretKey {
 pub enum WifDeserializeErr {
     WifToSmall,
     FailDecode(bs58::decode::Error),
-    InvalidChecksum(String, String)
+    InvalidChecksum { hash_from_original: String, hash_in_wif: String }, 
 }
 
 
@@ -134,7 +135,7 @@ mod tests {
     fn test_to_wif_mainnet_uncompressed() {
         // 테스트용 비밀키 생성 (1)
         let secret_key = SecretKey::new(Fp::new(U256::from(1u64)));
-        let public_address = PublicAddress::MainNet(Address::SecUncompress("dummy".to_string()));
+        let public_address = PublicAddress::MainNet(Address::Uncompress("dummy".to_string()));
         
         let wif = secret_key.to_wif(&public_address);
         
@@ -150,7 +151,7 @@ mod tests {
     fn test_to_wif_mainnet_compressed() {
         // 테스트용 비밀키 생성 (1)
         let secret_key = SecretKey::new(Fp::new(U256::from(1u64)));
-        let public_address = PublicAddress::MainNet(Address::SecCompress("dummy".to_string()));
+        let public_address = PublicAddress::MainNet(Address::Compress("dummy".to_string()));
         
         let wif = secret_key.to_wif(&public_address);
         
@@ -168,7 +169,7 @@ mod tests {
     fn test_to_wif_testnet_uncompressed() {
         // 테스트용 비밀키 생성 (1)
         let secret_key = SecretKey::new(Fp::new(U256::from(1u64)));
-        let public_address = PublicAddress::TestNet(Address::SecUncompress("dummy".to_string()));
+        let public_address = PublicAddress::TestNet(Address::Uncompress("dummy".to_string()));
         
         let wif = secret_key.to_wif(&public_address);
         
@@ -183,7 +184,7 @@ mod tests {
     fn test_to_wif_testnet_compressed() {
         // 테스트용 비밀키 생성 (1) 
         let secret_key = SecretKey::new(Fp::new(U256::from(1u64)));
-        let public_address = PublicAddress::TestNet(Address::SecCompress("dummy".to_string()));
+        let public_address = PublicAddress::TestNet(Address::Compress("dummy".to_string()));
         
         let wif = secret_key.to_wif(&public_address);
         
@@ -205,11 +206,11 @@ mod tests {
         let secret_key = SecretKey::new(Fp::new(U256::from(1u64)));
         
         // MainNet 비압축
-        let public_address_uncompressed = PublicAddress::MainNet(Address::SecUncompress("dummy".to_string()));
+        let public_address_uncompressed = PublicAddress::MainNet(Address::Uncompress("dummy".to_string()));
         let wif_uncompressed = secret_key.to_wif(&public_address_uncompressed);
         
         // MainNet 압축
-        let public_address_compressed = PublicAddress::MainNet(Address::SecCompress("dummy".to_string()));
+        let public_address_compressed = PublicAddress::MainNet(Address::Compress("dummy".to_string()));
         let wif_compressed = secret_key.to_wif(&public_address_compressed);
         
         // 두 WIF가 다른지 확인 (압축 여부에 따라 다름)
@@ -226,21 +227,21 @@ mod tests {
         let secret_key = SecretKey::new(Fp::new(U256::from(1u64)));
         
         // MainNet 비압축 형태의 예상 WIF (실제 계산 결과와 비교)
-        let public_address_uncompressed = PublicAddress::MainNet(Address::SecUncompress("dummy".to_string()));
+        let public_address_uncompressed = PublicAddress::MainNet(Address::Uncompress("dummy".to_string()));
         let wif_uncompressed = secret_key.to_wif(&public_address_uncompressed);
         
         // WIF가 '5' 또는 'K'/'L'로 시작하는지 확인 (MainNet)
         assert!(wif_uncompressed.starts_with('5') || wif_uncompressed.starts_with('K') || wif_uncompressed.starts_with('L'));
         
         // 압축 형태
-        let public_address_compressed = PublicAddress::MainNet(Address::SecCompress("dummy".to_string()));
+        let public_address_compressed = PublicAddress::MainNet(Address::Compress("dummy".to_string()));
         let wif_compressed = secret_key.to_wif(&public_address_compressed);
         
         // 압축된 WIF는 'K' 또는 'L'로 시작해야 함
         assert!(wif_compressed.starts_with('K') || wif_compressed.starts_with('L'));
         
         // TestNet의 경우 '9' 또는 'c'로 시작해야 함
-        let public_address_testnet = PublicAddress::TestNet(Address::SecUncompress("dummy".to_string()));
+        let public_address_testnet = PublicAddress::TestNet(Address::Uncompress("dummy".to_string()));
         let wif_testnet = secret_key.to_wif(&public_address_testnet);
         assert!(wif_testnet.starts_with('9') || wif_testnet.starts_with('c'));
     }
@@ -249,7 +250,7 @@ mod tests {
     fn test_to_wif_checksum_validation() {
         // 체크섬 검증 테스트
         let secret_key = SecretKey::new(Fp::new(U256::from(12345u64)));
-        let public_address = PublicAddress::MainNet(Address::SecUncompress("dummy".to_string()));
+        let public_address = PublicAddress::MainNet(Address::Uncompress("dummy".to_string()));
         
         let wif = secret_key.to_wif(&public_address);
         let decoded = bs58::decode(&wif).with_alphabet(bs58::Alphabet::BITCOIN).into_vec().unwrap();
@@ -265,7 +266,7 @@ mod tests {
         // 다른 비밀키들이 다른 WIF를 생성하는지 확인
         let secret_key1 = SecretKey::new(Fp::new(U256::from(1u64)));
         let secret_key2 = SecretKey::new(Fp::new(U256::from(2u64)));
-        let public_address = PublicAddress::MainNet(Address::SecUncompress("dummy".to_string()));
+        let public_address = PublicAddress::MainNet(Address::Uncompress("dummy".to_string()));
         
         let wif1 = secret_key1.to_wif(&public_address);
         let wif2 = secret_key2.to_wif(&public_address);
@@ -282,7 +283,7 @@ mod tests {
         let secret_key_u256 = U256::from_be_bytes::<32>(secret_key_bytes.try_into().unwrap());
         let secret_key = SecretKey::new(Fp::new(secret_key_u256));
         
-        let public_address = PublicAddress::MainNet(Address::SecCompress("dummy".to_string()));
+        let public_address = PublicAddress::MainNet(Address::Compress("dummy".to_string()));
         let wif = secret_key.to_wif(&public_address);
         
         // WIF가 생성되었고 올바른 형식인지 확인
@@ -303,7 +304,7 @@ mod tests {
         // 최대 비밀키 값 (secp256k1 곡선 order - 1)
         let max_key = U256::from_str_radix("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364140", 16).unwrap();
         let secret_key_max = SecretKey::new(Fp::new(max_key));
-        let public_address = PublicAddress::MainNet(Address::SecUncompress("dummy".to_string()));
+        let public_address = PublicAddress::MainNet(Address::Uncompress("dummy".to_string()));
         let wif_max = secret_key_max.to_wif(&public_address);
         
         assert!(!wif_max.is_empty());
@@ -324,25 +325,25 @@ mod tests {
         let original_secret = SecretKey::new(Fp::new(U256::from(12345u64)));
         
         // MainNet 비압축
-        let public_address_uncompressed = PublicAddress::MainNet(Address::SecUncompress("dummy".to_string()));
+        let public_address_uncompressed = PublicAddress::MainNet(Address::Uncompress("dummy".to_string()));
         let wif_uncompressed = original_secret.to_wif(&public_address_uncompressed);
         let parsed_secret_uncompressed = SecretKey::from_wif(&wif_uncompressed).unwrap();
         assert_eq!(original_secret, parsed_secret_uncompressed);
         
         // MainNet 압축
-        let public_address_compressed = PublicAddress::MainNet(Address::SecCompress("dummy".to_string()));
+        let public_address_compressed = PublicAddress::MainNet(Address::Compress("dummy".to_string()));
         let wif_compressed = original_secret.to_wif(&public_address_compressed);
         let parsed_secret_compressed = SecretKey::from_wif(&wif_compressed).unwrap();
         assert_eq!(original_secret, parsed_secret_compressed);
         
         // TestNet 비압축
-        let public_address_testnet = PublicAddress::TestNet(Address::SecUncompress("dummy".to_string()));
+        let public_address_testnet = PublicAddress::TestNet(Address::Uncompress("dummy".to_string()));
         let wif_testnet = original_secret.to_wif(&public_address_testnet);
         let parsed_secret_testnet = SecretKey::from_wif(&wif_testnet).unwrap();
         assert_eq!(original_secret, parsed_secret_testnet);
         
         // TestNet 압축
-        let public_address_testnet_compressed = PublicAddress::TestNet(Address::SecCompress("dummy".to_string()));
+        let public_address_testnet_compressed = PublicAddress::TestNet(Address::Compress("dummy".to_string()));
         let wif_testnet_compressed = original_secret.to_wif(&public_address_testnet_compressed);
         let parsed_secret_testnet_compressed = SecretKey::from_wif(&wif_testnet_compressed).unwrap();
         assert_eq!(original_secret, parsed_secret_testnet_compressed);
@@ -361,7 +362,7 @@ mod tests {
         
         for value in test_values {
             let original_secret = SecretKey::new(Fp::new(U256::from(value)));
-            let public_address = PublicAddress::MainNet(Address::SecCompress("dummy".to_string()));
+            let public_address = PublicAddress::MainNet(Address::Compress("dummy".to_string()));
             
             let wif = original_secret.to_wif(&public_address);
             let parsed_secret = SecretKey::from_wif(&wif).unwrap();
@@ -378,7 +379,7 @@ mod tests {
         let secret_key_u256 = U256::from_be_bytes::<32>(secret_key_bytes.try_into().unwrap());
         let original_secret = SecretKey::new(Fp::new(secret_key_u256));
         
-        let public_address = PublicAddress::MainNet(Address::SecCompress("dummy".to_string()));
+        let public_address = PublicAddress::MainNet(Address::Compress("dummy".to_string()));
         let wif = original_secret.to_wif(&public_address);
         let parsed_secret = SecretKey::from_wif(&wif).unwrap();
         
@@ -413,7 +414,7 @@ mod tests {
     fn test_from_wif_invalid_checksum() {
         // 잘못된 체크섬을 가진 WIF 테스트
         let original_secret = SecretKey::new(Fp::new(U256::from(12345u64)));
-        let public_address = PublicAddress::MainNet(Address::SecUncompress("dummy".to_string()));
+        let public_address = PublicAddress::MainNet(Address::Uncompress("dummy".to_string()));
         let wif = original_secret.to_wif(&public_address);
         
         // WIF 문자열의 마지막 문자를 변경하여 체크섬을 망침
@@ -423,7 +424,7 @@ mod tests {
         let corrupted_wif: String = chars.into_iter().collect();
         
         let result = SecretKey::from_wif(&corrupted_wif);
-        assert!(matches!(result, Err(WifDeserializeErr::InvalidChecksum(_, _))));
+        assert!(matches!(result, Err(WifDeserializeErr::InvalidChecksum { .. })));
     }
 
     #[test]
@@ -432,7 +433,7 @@ mod tests {
         
         // 최소값 (1)
         let min_secret = SecretKey::new(Fp::new(U256::from(1u64)));
-        let public_address = PublicAddress::MainNet(Address::SecUncompress("dummy".to_string()));
+        let public_address = PublicAddress::MainNet(Address::Uncompress("dummy".to_string()));
         let wif_min = min_secret.to_wif(&public_address);
         let parsed_min = SecretKey::from_wif(&wif_min).unwrap();
         assert_eq!(min_secret, parsed_min);
@@ -451,10 +452,10 @@ mod tests {
         let original_secret = SecretKey::new(Fp::new(U256::from(54321u64)));
         
         let test_cases = vec![
-            PublicAddress::MainNet(Address::SecUncompress("dummy".to_string())),
-            PublicAddress::MainNet(Address::SecCompress("dummy".to_string())),
-            PublicAddress::TestNet(Address::SecUncompress("dummy".to_string())),
-            PublicAddress::TestNet(Address::SecCompress("dummy".to_string())),
+            PublicAddress::MainNet(Address::Uncompress("dummy".to_string())),
+            PublicAddress::MainNet(Address::Compress("dummy".to_string())),
+            PublicAddress::TestNet(Address::Uncompress("dummy".to_string())),
+            PublicAddress::TestNet(Address::Compress("dummy".to_string())),
         ];
         
         for public_address in test_cases {
@@ -469,7 +470,7 @@ mod tests {
         // 랜덤 키에 대한 라운드트립 테스트
         for _ in 0..10 {
             let random_secret = SecretKey::random();
-            let public_address = PublicAddress::MainNet(Address::SecCompress("dummy".to_string()));
+            let public_address = PublicAddress::MainNet(Address::Compress("dummy".to_string()));
             
             let wif = random_secret.to_wif(&public_address);
             let parsed_secret = SecretKey::from_wif(&wif).unwrap();

@@ -28,8 +28,8 @@ impl AddressEncoder {
         let addr = Self::to_base58_check(&mut vec);
 
         match self.0 {
-            PublicKeySerialize::Compress(_) => PublicAddress::MainNet(Address::SecCompress(addr)),
-            PublicKeySerialize::Uncompress(_) => PublicAddress::MainNet(Address::SecUncompress(addr)),
+            PublicKeySerialize::Compress(_) => PublicAddress::MainNet(Address::Compress(addr)),
+            PublicKeySerialize::Uncompress(_) => PublicAddress::MainNet(Address::Uncompress(addr)),
         }
     }
 
@@ -39,8 +39,8 @@ impl AddressEncoder {
         let addr = Self::to_base58_check(&mut vec);
 
         match self.0 {
-            PublicKeySerialize::Compress(_) => PublicAddress::TestNet(Address::SecCompress(addr)),
-            PublicKeySerialize::Uncompress(_) => PublicAddress::TestNet(Address::SecUncompress(addr)),
+            PublicKeySerialize::Compress(_) => PublicAddress::TestNet(Address::Compress(addr)),
+            PublicKeySerialize::Uncompress(_) => PublicAddress::TestNet(Address::Uncompress(addr)),
         }
     }
 }
@@ -59,15 +59,17 @@ impl AddressBuilder {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Address {
-    SecCompress(String),
-    SecUncompress(String)
+    Compress(String),
+    Uncompress(String),
+    UnknownCompress(String)
 }
 
 impl std::fmt::Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Address::SecCompress(s) => write!(f, "{}", s),
-            Address::SecUncompress(s) => write!(f, "{}", s),
+            Address::Compress(s) => write!(f, "{}", s),
+            Address::Uncompress(s) => write!(f, "{}", s),
+            Address::UnknownCompress(s) => write!(f, "{}", s),
         }
     }
 }
@@ -79,7 +81,7 @@ pub enum PublicAddress {
 }
 
 impl PublicAddress {
-    pub fn builder(public_key: PublicKey) -> AddressBuilder {
+    pub fn build_with_public_key(public_key: PublicKey) -> AddressBuilder {
         AddressBuilder(public_key)
     }
 }
@@ -99,15 +101,15 @@ mod tests {
         let public_key = PublicKey::from_point(point).unwrap();
         
         // Builder 인스턴스 생성 테스트
-        let builder = PublicAddress::builder(public_key);
+        let builder = PublicAddress::build_with_public_key(public_key);
         
         // from_compress를 통한 압축된 형식 주소 생성
         let compressed_mainnet = builder.from_compress().into_main_net();
-        let compressed_testnet = PublicAddress::builder(public_key).from_compress().into_test_net();
+        let compressed_testnet = PublicAddress::build_with_public_key(public_key).from_compress().into_test_net();
         
         // from_uncompress를 통한 비압축 형식 주소 생성  
-        let uncompressed_mainnet = PublicAddress::builder(public_key).from_uncompress().into_main_net();
-        let uncompressed_testnet = PublicAddress::builder(public_key).from_uncompress().into_test_net();
+        let uncompressed_mainnet = PublicAddress::build_with_public_key(public_key).from_uncompress().into_main_net();
+        let uncompressed_testnet = PublicAddress::build_with_public_key(public_key).from_uncompress().into_test_net();
         
         // 생성된 주소들이 올바른 타입인지 확인
         match compressed_mainnet {
@@ -139,27 +141,27 @@ mod tests {
         let public_key = PublicKey::from_point(point).unwrap();
         
         // 같은 공개키로 여러 번 주소 생성
-        let addr1 = PublicAddress::builder(public_key).from_compress().into_main_net();
-        let addr2 = PublicAddress::builder(public_key).from_compress().into_main_net();
-        let addr3 = PublicAddress::builder(public_key).from_compress().into_main_net();
+        let addr1 = PublicAddress::build_with_public_key(public_key).from_compress().into_main_net();
+        let addr2 = PublicAddress::build_with_public_key(public_key).from_compress().into_main_net();
+        let addr3 = PublicAddress::build_with_public_key(public_key).from_compress().into_main_net();
         
         // 모든 주소가 동일해야 함
         let addr1_str = match &addr1 {
-            PublicAddress::MainNet(Address::SecCompress(s)) => s,
-            PublicAddress::MainNet(Address::SecUncompress(s)) => s,
-            PublicAddress::TestNet(_) => panic!("Expected MainNet"),
+            PublicAddress::MainNet(Address::Compress(s)) => s,
+            PublicAddress::MainNet(Address::Uncompress(s)) => s,
+            _ => panic!("Expected MainNet"),
         };
         
         let addr2_str = match &addr2 {
-            PublicAddress::MainNet(Address::SecCompress(s)) => s,
-            PublicAddress::MainNet(Address::SecUncompress(s)) => s,
-            PublicAddress::TestNet(_) => panic!("Expected MainNet"),
+            PublicAddress::MainNet(Address::Compress(s)) => s,
+            PublicAddress::MainNet(Address::Uncompress(s)) => s,
+            _ => panic!("Expected MainNet"),
         };
         
         let addr3_str = match &addr3 {
-            PublicAddress::MainNet(Address::SecCompress(s)) => s,
-            PublicAddress::MainNet(Address::SecUncompress(s)) => s,
-            PublicAddress::TestNet(_) => panic!("Expected MainNet"),
+            PublicAddress::MainNet(Address::Compress(s)) => s,
+            PublicAddress::MainNet(Address::Uncompress(s)) => s,
+            _ => panic!("Expected MainNet"),
         };
         
         assert_eq!(addr1_str, addr2_str, "Multiple calls should return identical addresses");
@@ -181,11 +183,11 @@ mod tests {
         let public_key = PublicKey::from_point(point).unwrap();
         
         // 압축된 MainNet 주소 생성 및 검증
-        let compressed_mainnet = PublicAddress::builder(public_key).from_compress().into_main_net();
+        let compressed_mainnet = PublicAddress::build_with_public_key(public_key).from_compress().into_main_net();
         let compressed_addr = match compressed_mainnet {
-            PublicAddress::MainNet(Address::SecCompress(s)) => s,
-            PublicAddress::MainNet(Address::SecUncompress(_)) => panic!("Expected compressed address"),
-            PublicAddress::TestNet(_) => panic!("Expected MainNet"),
+            PublicAddress::MainNet(Address::Compress(s)) => s,
+            PublicAddress::MainNet(Address::Uncompress(_)) => panic!("Expected compressed address"),
+            _ => panic!("Expected MainNet"),
         };
         
         // 개인키 1의 압축된 공개키 주소는 비트코인에서 잘 알려진 값
@@ -197,11 +199,11 @@ mod tests {
         println!("✓ Private key 1 compressed MainNet address: {}", compressed_addr);
         
         // 비압축 MainNet 주소 생성 및 검증
-        let uncompressed_mainnet = PublicAddress::builder(public_key).from_uncompress().into_main_net();
+        let uncompressed_mainnet = PublicAddress::build_with_public_key(public_key).from_uncompress().into_main_net();
         let uncompressed_addr = match uncompressed_mainnet {
-            PublicAddress::MainNet(Address::SecUncompress(s)) => s,
-            PublicAddress::MainNet(Address::SecCompress(_)) => panic!("Expected uncompressed address"),
-            PublicAddress::TestNet(_) => panic!("Expected MainNet"),
+            PublicAddress::MainNet(Address::Uncompress(s)) => s,
+            PublicAddress::MainNet(Address::Compress(_)) => panic!("Expected uncompressed address"),
+            _ => panic!("Expected MainNet"),
         };
         
         // 개인키 1의 비압축 공개키 주소는 비트코인에서 잘 알려진 값

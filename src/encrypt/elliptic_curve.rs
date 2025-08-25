@@ -5,76 +5,9 @@ use std::{fmt::Debug, marker::PhantomData, ops::{Add, Mul}, usize};
 use finite_field::FieldElement;
 use crate::U256Wrapper;
 
-
-/// 유한체 원소를 나타내는 타입 별칭
-/// 
-/// 이 타입은 소수 `P`를 모듈러스로 하는 유한체 `F_P`의 원소를 표현합니다.
-/// 
-/// # 타입 매개변수
-/// 
-/// * `P` - 유한체의 소수 모듈러스
-/// 
-/// # 예시
-/// 
-/// ```rust
-/// # use bitcoin_practice::{U256Type, U256Wrapper, encrypt::Fp};
-/// # use ruint::aliases::U256;
-/// 
-/// // F_23 (mod 23) 유한체 정의
-/// type P23 = U256Type<0, 0, 0, 23>;
-/// 
-/// // 유한체 원소 생성
-/// let a = Fp::<P23>::new(U256::from(15));
-/// let b = Fp::<P23>::new(U256::from(10));
-/// 
-/// // 유한체 연산
-/// let sum = a + b;      // (15 + 10) mod 23 = 2
-/// let product = a * b;  // (15 * 10) mod 23 = 12
-/// let quotient = a / b; // 15 * 10^(-1) mod 23
-/// ```
-/// 
-/// # 지원하는 연산
-/// 
-/// * **사칙연산**: `+`, `-`, `*`, `/` (모두 모듈러 연산)
-/// * **거듭제곱**: `pow(exponent)` - 모듈러 거듭제곱
-/// * **음수**: `-a` - 가법 역원
 pub type Fp<P> = FieldElement<P>;
 
 
-/// 이 타입은 유한체 위의 타원 곡선 `y² = x³ + Ax + B (mod P)`를 표현합니다.
-/// 
-/// # 타입 매개변수
-/// 
-/// * `P` - 유한체의 소수 모듈러스 (field modulus)
-/// * `A` - 타원 곡선 방정식의 계수 A 
-/// * `B` - 타원 곡선 방정식의 계수 B
-/// 
-/// # 예시
-/// 
-/// ```rust
-/// # use bitcoin_practice::{U256Type, U256Wrapper, encrypt::{Fp, CurvePoint}};
-/// # use ruint::aliases::U256;
-/// 
-/// // Secp256k1 곡선: y² = x³ + 7 (mod p)
-/// type P = U256Type<0xFFFFFFFF_FFFFFFFF, 0xFFFFFFFF_FFFFFFFF, 
-///                   0xFFFFFFFF_FFFFFFFF, 0xFFFFFFFE_FFFFFC2F>;
-/// type A = U256Type<0, 0, 0, 0>;  // A = 0
-/// type B = U256Type<0, 0, 0, 7>;  // B = 7
-/// 
-/// // 생성자 점 생성
-/// let gx = Fp::<P>::new(U256::from_limbs([0x59F2815B_16F81798, 0x029BFCDB_2DCE28D9, 
-///                                         0x55A06295_CE870B07, 0x79BE667E_F9DCBBAC]));
-/// let gy = Fp::<P>::new(U256::from_limbs([0x9C47D08F_FB10D4B8, 0xFD17B448_A6855419,
-///                                         0x5DA4FBFC_0E1108A8, 0x483ADA77_26A3C465]));
-/// 
-/// let generator = CurvePoint::<P, A, B>::new(gx, gy);
-/// ```
-/// 
-/// # 지원하는 연산
-/// 
-/// * **점 덧셈**: `point1 + point2` - 타원 곡선 상의 두 점을 더합니다
-/// * **스칼라 곱셈**: `point * scalar` - 점을 정수배 합니다 (이진 거듭제곱법 사용)
-/// * **무한원점**: `Curve::Infinity` - 덧셈의 항등원
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CurvePoint<P, A, B> 
 where 

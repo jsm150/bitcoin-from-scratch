@@ -10,4 +10,3 @@ use elliptic_curve::CurvePoint;
 pub use elliptic_curve::Fp;
 pub use key::{PublicKey, PublicAddress, SecretKey};
 pub use signature::Signature;
-
