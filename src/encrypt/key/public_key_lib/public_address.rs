@@ -1,4 +1,3 @@
-use digest::generic_array::arr;
 use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
 
@@ -6,16 +5,34 @@ use super::{PublicKeySerialize, PublicKey};
 
 
 
-pub struct AddressEncoder(PublicKeySerialize);
+pub struct AddressEncoder(Vec<u8>);
 
 impl AddressEncoder {
-    fn to_base58_check(vec: &mut Vec<u8>) -> String {
-        vec.extend_from_slice(&Sha256::digest(Sha256::digest(&vec))[..4]);
-        bs58::encode(&vec)
+    fn to_base58_check(&mut self) -> String {
+        self.0.extend_from_slice(&Sha256::digest(Sha256::digest(&self.0))[..4]);
+        bs58::encode(&self.0)
             .with_alphabet(bs58::Alphabet::BITCOIN)
             .into_string()
     }
 
+    pub fn into_main_net(mut self) -> PublicAddress {
+        self.0[0] = 0x00;
+        let addr = self.to_base58_check();
+
+        PublicAddress::MainNet(addr)
+    }
+
+    pub fn into_test_net(mut self) -> PublicAddress {
+        self.0[0] = 0x6f;
+        let addr = self.to_base58_check();
+
+        PublicAddress::TestNet(addr)
+    }
+}
+
+pub struct AddressBuilder(PublicKey);
+
+impl AddressBuilder {
     fn to_hash(&self, sec: &PublicKeySerialize) -> Vec<u8> {
         let mut vec = vec![0];
         let hash160 = Ripemd160::digest(Sha256::digest(sec));
@@ -23,62 +40,20 @@ impl AddressEncoder {
         vec
     }
 
-    pub fn into_main_net(self) -> PublicAddress {
-        let mut vec = self.to_hash(&self.0);
-        vec[0] = 0x00;
-        let addr = Self::to_base58_check(&mut vec);
-
-        match self.0 {
-            PublicKeySerialize::Compress(_) => PublicAddress::MainNet(Address::Compress(addr)),
-            PublicKeySerialize::Uncompress(_) => PublicAddress::MainNet(Address::Uncompress(addr)),
-        }
-    }
-
-    pub fn into_test_net(self) -> PublicAddress {
-        let mut vec = self.to_hash(&self.0);
-        vec[0] = 0x6f;
-        let addr = Self::to_base58_check(&mut vec);
-
-        match self.0 {
-            PublicKeySerialize::Compress(_) => PublicAddress::TestNet(Address::Compress(addr)),
-            PublicKeySerialize::Uncompress(_) => PublicAddress::TestNet(Address::Uncompress(addr)),
-        }
-    }
-}
-
-pub struct AddressBuilder(PublicKey);
-
-impl AddressBuilder {
     pub fn from_compress(self) -> AddressEncoder {
-        AddressEncoder(self.0.to_compress_sec())
+        AddressEncoder(self.to_hash(&self.0.to_compress_sec()))
     }
 
     pub fn from_uncompress(self) -> AddressEncoder {
-        AddressEncoder(self.0.to_uncompress_sec())
+        AddressEncoder(self.to_hash(&self.0.to_uncompress_sec()))
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Address {
-    Compress(String),
-    Uncompress(String),
-    UnknownCompress(String)
-}
-
-impl std::fmt::Display for Address {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Address::Compress(s) => write!(f, "{}", s),
-            Address::Uncompress(s) => write!(f, "{}", s),
-            Address::UnknownCompress(s) => write!(f, "{}", s),
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PublicAddress {
-    MainNet(Address),
-    TestNet(Address)
+    MainNet(String),
+    TestNet(String)
 }
 
 impl PublicAddress {
@@ -136,11 +111,11 @@ impl TryFrom<String> for PublicAddress {
         match version {
             0x00 => {
                 // MainNet P2PKH 주소
-                Ok(PublicAddress::MainNet(Address::UnknownCompress(address)))
+                Ok(PublicAddress::MainNet(address))
             },
             0x6f => {
                 // TestNet P2PKH 주소
-                Ok(PublicAddress::TestNet(Address::UnknownCompress(address)))
+                Ok(PublicAddress::TestNet(address))
             },
             _ => Err(AddressParseError::UnsupportedVersion),
         }
@@ -161,13 +136,7 @@ impl PartialEq<PublicKeySerialize> for PublicAddress {
             PublicAddress::MainNet(address) => address,
             PublicAddress::TestNet(address) => address,
         };
-
-        let address = match address {
-            Address::Compress(address) => address,
-            Address::Uncompress(address) => address,
-            Address::UnknownCompress(address) => address,
-        };
-
+        
         let decoded = bs58::decode(address)
             .with_alphabet(bs58::Alphabet::BITCOIN)
             .into_vec()
@@ -238,20 +207,17 @@ mod tests {
         
         // 모든 주소가 동일해야 함
         let addr1_str = match &addr1 {
-            PublicAddress::MainNet(Address::Compress(s)) => s,
-            PublicAddress::MainNet(Address::Uncompress(s)) => s,
+            PublicAddress::MainNet(s) => s,
             _ => panic!("Expected MainNet"),
         };
         
         let addr2_str = match &addr2 {
-            PublicAddress::MainNet(Address::Compress(s)) => s,
-            PublicAddress::MainNet(Address::Uncompress(s)) => s,
+            PublicAddress::MainNet(s) => s,
             _ => panic!("Expected MainNet"),
         };
         
         let addr3_str = match &addr3 {
-            PublicAddress::MainNet(Address::Compress(s)) => s,
-            PublicAddress::MainNet(Address::Uncompress(s)) => s,
+            PublicAddress::MainNet(s) => s,
             _ => panic!("Expected MainNet"),
         };
         
@@ -276,8 +242,7 @@ mod tests {
         // 압축된 MainNet 주소 생성 및 검증
         let compressed_mainnet = PublicAddress::build_with_public_key(public_key).from_compress().into_main_net();
         let compressed_addr = match compressed_mainnet {
-            PublicAddress::MainNet(Address::Compress(s)) => s,
-            PublicAddress::MainNet(Address::Uncompress(_)) => panic!("Expected compressed address"),
+            PublicAddress::MainNet(s) => s,
             _ => panic!("Expected MainNet"),
         };
         
@@ -292,8 +257,7 @@ mod tests {
         // 비압축 MainNet 주소 생성 및 검증
         let uncompressed_mainnet = PublicAddress::build_with_public_key(public_key).from_uncompress().into_main_net();
         let uncompressed_addr = match uncompressed_mainnet {
-            PublicAddress::MainNet(Address::Uncompress(s)) => s,
-            PublicAddress::MainNet(Address::Compress(_)) => panic!("Expected uncompressed address"),
+            PublicAddress::MainNet(s) => s,
             _ => panic!("Expected MainNet"),
         };
         
@@ -319,11 +283,11 @@ mod tests {
         let parsed_mainnet = PublicAddress::try_from(mainnet_address.clone()).unwrap();
         
         match parsed_mainnet {
-            PublicAddress::MainNet(Address::UnknownCompress(addr)) => {
+            PublicAddress::MainNet(addr) => {
                 assert_eq!(addr, mainnet_address);
                 println!("✓ MainNet address parsed successfully: {}", addr);
             },
-            _ => panic!("Expected MainNet UnknownCompress address"),
+            _ => panic!("Expected MainNet address"),
         }
 
         // 유효한 TestNet 주소 테스트 (버전 바이트 0x6f)
@@ -336,17 +300,17 @@ mod tests {
             .into_test_net();
         
         let testnet_address_str = match &testnet_address_obj {
-            PublicAddress::TestNet(Address::Compress(s)) => s.clone(),
-            _ => panic!("Expected TestNet Compress address"),
+            PublicAddress::TestNet(s) => s.clone(),
+            _ => panic!("Expected TestNet address"),
         };
 
         let parsed_testnet = PublicAddress::try_from(testnet_address_str.clone()).unwrap();
         match parsed_testnet {
-            PublicAddress::TestNet(Address::UnknownCompress(addr)) => {
+            PublicAddress::TestNet(addr) => {
                 assert_eq!(addr, testnet_address_str);
                 println!("✓ TestNet address parsed successfully: {}", addr);
             },
-            _ => panic!("Expected TestNet UnknownCompress address"),
+            _ => panic!("Expected TestNet address"),
         }
 
         // 잘못된 Base58 문자열 테스트
@@ -469,8 +433,8 @@ mod tests {
         
         // 실제 주소 확인
         let address_str = match &compressed_address {
-            PublicAddress::MainNet(Address::Compress(s)) => s,
-            _ => panic!("Expected compressed MainNet address"),
+            PublicAddress::MainNet(s) => s,
+            _ => panic!("Expected MainNet address"),
         };
         assert_eq!(address_str, "1BgGZ9tcN4rm9KBzDn7KprQz87SZ26SAMH");
         
@@ -484,8 +448,8 @@ mod tests {
         
         // 실제 주소 확인
         let address_str = match &uncompressed_address {
-            PublicAddress::MainNet(Address::Uncompress(s)) => s,
-            _ => panic!("Expected uncompressed MainNet address"),
+            PublicAddress::MainNet(s) => s,
+            _ => panic!("Expected MainNet address"),
         };
         assert_eq!(address_str, "1EHNa6Q4Jz2uvNExL497mE43ikXhwF6kZm");
         
@@ -507,8 +471,8 @@ mod tests {
 
         // 주소 문자열 추출
         let address_string = match &compressed_address {
-            PublicAddress::MainNet(Address::Compress(s)) => s.clone(),
-            _ => panic!("Expected compressed MainNet address"),
+            PublicAddress::MainNet(s) => s.clone(),
+            _ => panic!("Expected MainNet address"),
         };
 
         // 문자열에서 파싱한 주소
@@ -524,8 +488,8 @@ mod tests {
             .into_test_net();
         
         let testnet_string = match &testnet_address {
-            PublicAddress::TestNet(Address::Compress(s)) => s.clone(),
-            _ => panic!("Expected compressed TestNet address"),
+            PublicAddress::TestNet(s) => s.clone(),
+            _ => panic!("Expected TestNet address"),
         };
 
         let parsed_testnet = PublicAddress::try_from(testnet_string).unwrap();
