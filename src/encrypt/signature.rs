@@ -1,9 +1,161 @@
+use derive_more::Index;
 use rand::Rng;
 use ruint::aliases::U256;
 
 
 use super::{Fp, N, P, Secp256k1, CurvePoint, U256Wrapper, PublicKey, SecretKey};
 
+#[derive(Debug, Clone, Index, PartialEq)]
+pub struct Der(Vec<u8>);
+
+#[derive(Debug, PartialEq)]
+pub enum DerError {
+    InvalidLength,
+    InvalidSequenceTag,
+    InvalidIntegerTag,
+    InvalidFormat,
+    InvalidPadding,
+}
+
+impl TryFrom<Vec<u8>> for Der {
+    type Error = DerError;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        // 최소 길이 검증: SEQUENCE(1) + length(1) + r_header(2) + r_data(32) + s_header(2) + s_data(32) = 70
+        if value.len() < 70 {
+            return Err(DerError::InvalidLength);
+        }
+
+        let mut pos = 0;
+
+        // SEQUENCE 태그 검증 (0x30)
+        if value[pos] != 0x30 {
+            return Err(DerError::InvalidSequenceTag);
+        }
+        pos += 1;
+
+        // 전체 길이
+        let total_len = value[pos] as usize;
+        pos += 1;
+
+        // 전체 길이가 실제 데이터 길이와 일치하는지 검증
+        if total_len + 2 != value.len() {
+            return Err(DerError::InvalidLength);
+        }
+
+        // 첫 번째 INTEGER (r) 검증
+        if value[pos] != 0x02 {
+            return Err(DerError::InvalidIntegerTag);
+        }
+        pos += 1;
+
+        let r_len = value[pos] as usize;
+        pos += 1;
+
+        // r 길이가 유효한지 검증 (32 또는 33바이트)
+        if r_len != 32 && r_len != 33 {
+            return Err(DerError::InvalidLength);
+        }
+
+        // r 데이터 검증
+        if r_len == 33 {
+            // 패딩이 있는 경우 첫 바이트는 0x00이어야 하고 두 번째 바이트는 0x80 이상이어야 함
+            if value[pos] != 0x00 || value[pos + 1] < 0x80 {
+                return Err(DerError::InvalidPadding);
+            }
+        } else if r_len == 32 {
+            // 패딩이 없는 경우 첫 바이트는 0x80 미만이어야 함
+            if value[pos] >= 0x80 {
+                return Err(DerError::InvalidPadding);
+            }
+        }
+
+        pos += r_len;
+
+        // 두 번째 INTEGER (s) 검증
+        if value[pos] != 0x02 {
+            return Err(DerError::InvalidIntegerTag);
+        }
+        pos += 1;
+
+        let s_len = value[pos] as usize;
+        pos += 1;
+
+        // s 길이가 유효한지 검증 (32 또는 33바이트)
+        if s_len != 32 && s_len != 33 {
+            return Err(DerError::InvalidLength);
+        }
+
+        // s 데이터 검증
+        if s_len == 33 {
+            // 패딩이 있는 경우 첫 바이트는 0x00이어야 하고 두 번째 바이트는 0x80 이상이어야 함
+            if value[pos] != 0x00 || value[pos + 1] < 0x80 {
+                return Err(DerError::InvalidPadding);
+            }
+        } else if s_len == 32 {
+            // 패딩이 없는 경우 첫 바이트는 0x80 미만이어야 함
+            if value[pos] >= 0x80 {
+                return Err(DerError::InvalidPadding);
+            }
+        }
+
+        pos += s_len;
+
+        // 모든 바이트를 소모했는지 확인
+        if pos != value.len() {
+            return Err(DerError::InvalidFormat);
+        }
+
+        // 모든 검증을 통과했으므로 Der 구조체 생성
+        Ok(Der(value))
+    }
+}
+
+
+impl From<Signature> for Der {
+    fn from(sign: Signature) -> Self {
+        // 0x30 | total_length | 0x02 | r_length | r_data | 0x02 | s_length | s_data
+        fn parse(byte: &[u8; 32]) -> (u8, [u8; 35]) {
+
+            let mut buf = [0; 35];
+            buf[0] = 0x2;
+
+            // r_byte + 길이 바이트 + 시작 바이트
+            let mut buf_len = (byte.len() + 2) as u8;
+
+            if byte[0] >= 0x80 {
+                buf_len += 1;
+                buf[1] = (byte.len() + 1) as u8;
+                buf[2] = 0;
+                buf[3..].copy_from_slice(byte);
+            }
+            else {
+                buf[1] = byte.len() as u8;
+                buf[2.. 2 + byte.len()].copy_from_slice(byte);
+            }
+
+            (buf_len, buf)
+        }
+
+        let r_byte: [u8; 32] = U256::from(sign.r).to_be_bytes();
+        let s_byte: [u8; 32] = U256::from(sign.s).to_be_bytes();
+        let (r_len, r_buf) = parse(&r_byte);
+        let (s_len, s_buf) = parse(&s_byte);
+
+        let mut der = Vec::with_capacity(72);
+        der.push(0x30);
+        der.push(r_len + s_len);
+
+        let (r_len, s_len) = (r_len as usize, s_len as usize);
+
+        der.extend_from_slice(&r_buf[..r_len]);
+        der.extend_from_slice(&s_buf[..s_len]);
+        
+        Der(der)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Signature {
     r: Fp<N>,
     s: Fp<N>,
@@ -50,47 +202,6 @@ impl Signature {
             false
         }
     }
-
-    pub fn to_der(&self) -> [u8; 72] {
-        
-        fn parse(byte: &[u8; 32]) -> (u8, [u8; 35]) {
-
-            let mut buf = [0; 35];
-            buf[0] = 0x2;
-
-            // r_byte + 길이 바이트 + 시작 바이트
-            let mut buf_len = (byte.len() + 2) as u8;
-
-            if byte[0] >= 0x80 {
-                buf_len += 1;
-                buf[1] = (byte.len() + 1) as u8;
-                buf[2] = 0;
-                buf[3..].copy_from_slice(byte);
-            }
-            else {
-                buf[1] = byte.len() as u8;
-                buf[2.. 2 + byte.len()].copy_from_slice(byte);
-            }
-
-            (buf_len, buf)
-        }
-
-        let r_byte: [u8; 32] = U256::from(self.r).to_be_bytes();
-        let s_byte: [u8; 32] = U256::from(self.s).to_be_bytes();
-        let (r_len, r_buf) = parse(&r_byte);
-        let (s_len, s_buf) = parse(&s_byte);
-        
-        let mut der = [0; 72];
-        der[0] = 0x30;
-        der[1] = r_len + s_len;
-
-        let (r_len, s_len) = (r_len as usize, s_len as usize);
-        
-        der[2 .. 2 + r_len].copy_from_slice(&r_buf[..r_len]);
-        der[2 + r_len .. 2 + r_len + s_len].copy_from_slice(&s_buf[..s_len]);
-
-        der
-    }
 }
 
 
@@ -103,6 +214,59 @@ impl From<Fp<P>> for Fp<N> {
         else {
             Self::new(p)
         }
+    }
+}
+
+impl From<Der> for Signature {
+    fn from(value: Der) -> Self {
+        let bytes = &value.0;
+        let mut pos = 0;
+
+        // SEQUENCE 태그 건너뛰기 (이미 검증됨)
+        pos += 1; // 0x30
+        pos += 1; // 전체 길이
+
+        // 첫 번째 INTEGER (r) 파싱
+        pos += 1; // 0x02 태그
+        let r_len = bytes[pos] as usize;
+        pos += 1;
+
+        // r 데이터 추출 (패딩 제거)
+        let r_bytes = if r_len == 33 && bytes[pos] == 0x00 {
+            // 패딩 제거
+            &bytes[pos + 1..pos + r_len]
+        } else {
+            &bytes[pos..pos + r_len]
+        };
+        
+        // 32바이트 배열로 변환
+        let mut r_array = [0u8; 32];
+        let start_idx = 32 - r_bytes.len();
+        r_array[start_idx..].copy_from_slice(r_bytes);
+        let r = Fp::new(U256::from_be_bytes(r_array));
+
+        pos += r_len;
+
+        // 두 번째 INTEGER (s) 파싱
+        pos += 1; // 0x02 태그
+        let s_len = bytes[pos] as usize;
+        pos += 1;
+
+        // s 데이터 추출 (패딩 제거)
+        let s_bytes = if s_len == 33 && bytes[pos] == 0x00 {
+            // 패딩 제거
+            &bytes[pos + 1..pos + s_len]
+        } else {
+            &bytes[pos..pos + s_len]
+        };
+        
+        // 32바이트 배열로 변환
+        let mut s_array = [0u8; 32];
+        let start_idx = 32 - s_bytes.len();
+        s_array[start_idx..].copy_from_slice(s_bytes);
+        let s = Fp::new(U256::from_be_bytes(s_array));
+
+        Signature::new(r, s)
     }
 }
 
@@ -253,7 +417,7 @@ mod tests {
         let s = Fp::new(U256::from_str_radix("8ca63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec", 16).unwrap());
         
         let signature = Signature::new(r, s);
-        let der = signature.to_der();
+        let der: Der = signature.into();
         
         // DER 형식 검증
         assert_eq!(der[0], 0x30, "DER should start with 0x30 (SEQUENCE tag)");
@@ -298,7 +462,7 @@ mod tests {
         let s = Fp::new(U256::from_str_radix("80a63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec", 16).unwrap());
         
         let signature = Signature::new(r, s);
-        let der = signature.to_der();
+        let der: Der = signature.into();
         
         // DER 기본 구조 검증
         assert_eq!(der[0], 0x30, "DER should start with 0x30");
@@ -327,7 +491,7 @@ mod tests {
         let s = Fp::new(U256::from_str_radix("1ca63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec", 16).unwrap());
         
         let signature = Signature::new(r, s);
-        let der = signature.to_der();
+        let der: Der = signature.into();
         
         // DER 기본 구조 검증
         assert_eq!(der[0], 0x30, "DER should start with 0x30");
@@ -354,7 +518,7 @@ mod tests {
         let s = Fp::new(U256::from_str_radix("1ca63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec", 16).unwrap());
         
         let signature = Signature::new(r, s);
-        let der = signature.to_der();
+        let der: Der = signature.into();
         
         // DER 기본 구조 검증
         assert_eq!(der[0], 0x30, "DER should start with 0x30");
@@ -381,7 +545,7 @@ mod tests {
         let s = Fp::new(U256::from(1u64)); // s는 0이면 안되므로 1로 설정
         
         let signature = Signature::new(r, s);
-        let der = signature.to_der();
+        let der: Der = signature.into();
         
         // DER 기본 구조 검증
         assert_eq!(der[0], 0x30, "DER should start with 0x30");
@@ -414,7 +578,7 @@ mod tests {
         let s = Fp::new(U256::from_str_radix(s_hex, 16).unwrap());
         
         let signature = Signature::new(r, s);
-        let der = signature.to_der();
+        let der: Der = signature.into();
         
         // DER 형식의 기본 구조 검증
         assert_eq!(der[0], 0x30, "DER should start with 0x30 (SEQUENCE tag)");
@@ -460,5 +624,210 @@ mod tests {
         }
         
         println!("DER encoding test passed! Generated DER matches expected result.");
+    }
+
+    #[test]
+    fn test_der_try_from_valid() {
+        // 유효한 DER 바이트 배열 생성 (테스트용)
+        let r = Fp::new(U256::from_str_radix("37206a0610995c58074999cb9767b87af4c4978db68c06e8e6e81d282047a7c6", 16).unwrap());
+        let s = Fp::new(U256::from_str_radix("8ca63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec", 16).unwrap());
+        
+        let signature = Signature::new(r, s);
+        let der: Der = signature.into();
+        
+        // Der -> Vec<u8> -> Der 변환 테스트
+        let bytes = der.0.clone();
+        let reconstructed = Der::try_from(bytes).unwrap();
+        
+        assert_eq!(der.0, reconstructed.0, "Reconstructed DER should match original");
+    }
+
+    #[test]
+    fn test_der_try_from_invalid_sequence_tag() {
+        let mut invalid_der = vec![
+            0x31, 0x45, // 잘못된 SEQUENCE 태그 (0x31 instead of 0x30)
+            0x02, 0x20, // r INTEGER tag and length
+        ];
+        invalid_der.extend_from_slice(&[0u8; 32]); // r data
+        invalid_der.extend_from_slice(&[0x02, 0x20]); // s INTEGER tag and length
+        invalid_der.extend_from_slice(&[0u8; 32]); // s data
+
+        let result = Der::try_from(invalid_der);
+        assert_eq!(result, Err(DerError::InvalidSequenceTag));
+    }
+
+    #[test]
+    fn test_der_try_from_invalid_length() {
+        // 너무 짧은 바이트 배열
+        let short_der = vec![0x30, 0x05, 0x02, 0x01, 0x00];
+        let result = Der::try_from(short_der);
+        assert_eq!(result, Err(DerError::InvalidLength));
+    }
+
+    #[test]
+    fn test_der_try_from_invalid_integer_tag() {
+        let mut invalid_der = vec![
+            0x30, 0x44, // SEQUENCE tag and length
+            0x03, 0x20, // 잘못된 INTEGER 태그 (0x03 instead of 0x02)
+        ];
+        invalid_der.extend_from_slice(&[0u8; 32]); // r data
+        invalid_der.extend_from_slice(&[0x02, 0x20]); // s INTEGER tag and length
+        invalid_der.extend_from_slice(&[0u8; 32]); // s data
+
+        let result = Der::try_from(invalid_der);
+        assert_eq!(result, Err(DerError::InvalidIntegerTag));
+    }
+
+    #[test]
+    fn test_der_try_from_invalid_padding() {
+        // 0x80 이상인데 패딩이 없는 경우
+        let mut invalid_der = vec![
+            0x30, 0x44, // SEQUENCE tag and length
+            0x02, 0x20, // r INTEGER tag and length (32 bytes, no padding)
+            0x80, // r 첫 바이트가 0x80 이상인데 패딩 없음
+        ];
+        invalid_der.extend_from_slice(&[0u8; 31]); // r data 나머지
+        invalid_der.extend_from_slice(&[0x02, 0x20]); // s INTEGER tag and length
+        invalid_der.extend_from_slice(&[0u8; 32]); // s data
+
+        let result = Der::try_from(invalid_der);
+        assert_eq!(result, Err(DerError::InvalidPadding));
+    }
+
+    #[test]
+    fn test_der_try_from_invalid_padding_unnecessary() {
+        // 0x80 미만인데 패딩이 있는 경우
+        let mut invalid_der = vec![
+            0x30, 0x45, // SEQUENCE tag and length (전체 길이를 69로 수정)
+            0x02, 0x21, // r INTEGER tag and length (33 bytes, with padding)
+            0x00, 0x37, // 불필요한 패딩 (0x37은 0x80 미만)
+        ];
+        invalid_der.extend_from_slice(&[0u8; 31]); // r data 나머지
+        invalid_der.extend_from_slice(&[0x02, 0x20]); // s INTEGER tag and length
+        invalid_der.extend_from_slice(&[0u8; 32]); // s data
+
+        let result = Der::try_from(invalid_der);
+        assert_eq!(result, Err(DerError::InvalidPadding));
+    }
+
+    #[test]
+    fn test_der_try_from_length_mismatch() {
+        // 선언된 길이와 실제 길이가 다른 경우
+        let mut invalid_der = vec![
+            0x30, 0x50, // 잘못된 길이 (실제보다 큼)
+            0x02, 0x20, // r INTEGER tag and length
+        ];
+        invalid_der.extend_from_slice(&[0u8; 32]); // r data
+        invalid_der.extend_from_slice(&[0x02, 0x20]); // s INTEGER tag and length
+        invalid_der.extend_from_slice(&[0u8; 32]); // s data
+
+        let result = Der::try_from(invalid_der);
+        assert_eq!(result, Err(DerError::InvalidLength));
+    }
+
+    #[test]
+    fn test_der_try_from_with_padding() {
+        // 패딩이 있는 r과 s 값으로 테스트
+        let r = Fp::new(U256::from_str_radix("ff206a0610995c58074999cb9767b87af4c4978db68c06e8e6e81d282047a7c6", 16).unwrap());
+        let s = Fp::new(U256::from_str_radix("80a63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec", 16).unwrap());
+        
+        let signature = Signature::new(r, s);
+        let der: Der = signature.into();
+        
+        // Der -> Vec<u8> -> Der 변환 테스트
+        let bytes = der.0.clone();
+        let reconstructed = Der::try_from(bytes).unwrap();
+        
+        assert_eq!(der.0, reconstructed.0, "Reconstructed DER with padding should match original");
+    }
+
+    #[test]
+    fn test_der_roundtrip_conversion() {
+        // 실제 사용 예제: Signature -> Der -> bytes -> Der 변환
+        let secret_key = Fp::new(U256::from(12345u64));
+        let z = Fp::new(U256::from(67890u64));
+        
+        // 1. 서명 생성
+        let signature = Signature::build(z, SecretKey::new(secret_key));
+        
+        // 2. DER로 변환
+        let der: Der = signature.into();
+        
+        // 3. 바이트 배열로 변환
+        let bytes = der.0.clone();
+        
+        // 4. 바이트 배열에서 다시 DER로 변환 (검증)
+        let verified_der = Der::try_from(bytes).expect("Valid DER should parse successfully");
+        
+        // 5. 원본과 동일한지 확인
+        assert_eq!(der.0, verified_der.0, "Roundtrip conversion should preserve data");
+        
+        println!("DER roundtrip conversion test passed!");
+    }
+
+    #[test]
+    fn test_der_to_signature_conversion() {
+        // 알려진 r, s 값으로 Signature 생성
+        let r_hex = "37206a0610995c58074999cb9767b87af4c4978db68c06e8e6e81d282047a7c6";
+        let s_hex = "8ca63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec";
+        
+        let r = Fp::new(U256::from_str_radix(r_hex, 16).unwrap());
+        let s = Fp::new(U256::from_str_radix(s_hex, 16).unwrap());
+        
+        let original_signature = Signature::new(r, s);
+        
+        // Signature -> Der -> Signature 라운드트립 테스트
+        let der: Der = original_signature.clone().into();
+        let reconstructed_signature: Signature = der.into();
+        
+        // r, s 값이 동일한지 확인
+        assert_eq!(original_signature.r, reconstructed_signature.r, "r values should match");
+        assert_eq!(original_signature.s, reconstructed_signature.s, "s values should match");
+        
+        println!("Der to Signature conversion test passed!");
+    }
+
+    #[test]
+    fn test_der_to_signature_with_padding() {
+        // 패딩이 필요한 값들로 테스트
+        let r_hex = "ff206a0610995c58074999cb9767b87af4c4978db68c06e8e6e81d282047a7c6";
+        let s_hex = "80a63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec";
+        
+        let r = Fp::new(U256::from_str_radix(r_hex, 16).unwrap());
+        let s = Fp::new(U256::from_str_radix(s_hex, 16).unwrap());
+        
+        let original_signature = Signature::new(r, s);
+        
+        // Signature -> Der -> Signature 라운드트립 테스트
+        let der: Der = original_signature.clone().into();
+        let reconstructed_signature: Signature = der.into();
+        
+        // r, s 값이 동일한지 확인
+        assert_eq!(original_signature.r, reconstructed_signature.r, "r values should match (with padding)");
+        assert_eq!(original_signature.s, reconstructed_signature.s, "s values should match (with padding)");
+        
+        println!("Der to Signature conversion with padding test passed!");
+    }
+
+    #[test]
+    fn test_der_to_signature_mixed_padding() {
+        // r은 패딩 필요, s는 패딩 불필요한 경우
+        let r_hex = "ff206a0610995c58074999cb9767b87af4c4978db68c06e8e6e81d282047a7c6";
+        let s_hex = "1ca63759c1157ebeaec0d03cecca119fc9a75bf8e6d0fa65c841c8e2738cdaec";
+        
+        let r = Fp::new(U256::from_str_radix(r_hex, 16).unwrap());
+        let s = Fp::new(U256::from_str_radix(s_hex, 16).unwrap());
+        
+        let original_signature = Signature::new(r, s);
+        
+        // Signature -> Der -> Signature 라운드트립 테스트
+        let der: Der = original_signature.clone().into();
+        let reconstructed_signature: Signature = der.into();
+        
+        // r, s 값이 동일한지 확인
+        assert_eq!(original_signature.r, reconstructed_signature.r, "r values should match (mixed padding)");
+        assert_eq!(original_signature.s, reconstructed_signature.s, "s values should match (mixed padding)");
+        
+        println!("Der to Signature conversion with mixed padding test passed!");
     }
 }

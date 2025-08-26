@@ -36,6 +36,15 @@ pub enum PublicAddress {
     TestNet(String)
 }
 
+impl AsRef<String> for PublicAddress {
+    fn as_ref(&self) -> &String {
+        match self {
+            PublicAddress::MainNet(s) => s,
+            PublicAddress::TestNet(s) => s,
+        }
+    }
+}
+
 impl PublicAddress {
     fn to_hash(public_serialize: &PublicKeySerialize) -> Vec<u8> {
         let mut vec = vec![0];
