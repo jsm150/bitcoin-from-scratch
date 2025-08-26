@@ -1,3 +1,5 @@
+use std::io::{Cursor, Write};
+
 use derive_more::Index;
 use rand::Rng;
 use ruint::aliases::U256;
@@ -118,23 +120,23 @@ impl From<Signature> for Der {
         fn parse(byte: &[u8; 32]) -> (u8, [u8; 35]) {
 
             let mut buf = [0; 35];
-            buf[0] = 0x2;
+            let mut buf_writer = Cursor::new(&mut buf[..]);
+            
+            buf_writer.write(&[0x02]).unwrap();
 
-            // r_byte + 길이 바이트 + 시작 바이트
-            let mut buf_len = (byte.len() + 2) as u8;
 
             if byte[0] >= 0x80 {
-                buf_len += 1;
-                buf[1] = (byte.len() + 1) as u8;
-                buf[2] = 0;
-                buf[3..].copy_from_slice(byte);
+                buf_writer.write(&[(byte.len() + 1) as u8]).unwrap();
+                buf_writer.write(&[0]).unwrap();
             }
             else {
-                buf[1] = byte.len() as u8;
-                buf[2.. 2 + byte.len()].copy_from_slice(byte);
+                buf_writer.write(&[byte.len() as u8]).unwrap();
             }
 
-            (buf_len, buf)
+            buf_writer.write(byte).unwrap();
+            buf_writer.flush().unwrap();
+
+            (buf_writer.position() as u8, buf)
         }
 
         let r_byte: [u8; 32] = U256::from(sign.r).to_be_bytes();
@@ -146,10 +148,8 @@ impl From<Signature> for Der {
         der.push(0x30);
         der.push(r_len + s_len);
 
-        let (r_len, s_len) = (r_len as usize, s_len as usize);
-
-        der.extend_from_slice(&r_buf[..r_len]);
-        der.extend_from_slice(&s_buf[..s_len]);
+        der.extend_from_slice(&r_buf[..r_len as usize]);
+        der.extend_from_slice(&s_buf[..s_len as usize]);
         
         Der(der)
     }
